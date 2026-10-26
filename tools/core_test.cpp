@@ -359,11 +359,32 @@ int main()
         CHECK(Base64Encode("foobar") == "Zm9vYmFy" && Base64Encode("fo") == "Zm8=", "base64 alphabet");
         CHECK(JsonString("a\"b\\c\n\x01") == "\"a\\\"b\\\\c\\n\\u0001\"", "json escaping: %s", JsonString("a\"b\\c\n\x01").c_str());
         CHECK(Utf8FromWide(L"Zo\u00EB") == "Zo\xC3\xAB", "utf8 from wide");
-        TextReply t = ParseTextReply("ok 1\nboard 0-4-1-0\nrow 1\tabc\tDaniel\r\nrow 2\tdef\tZoe\n");
+        TextReply t = ParseTextReply("ok 1\nboard 0-4-1-0\nrow 1\tabc\tPilot\r\nrow 2\tdef\tZoe\n");
         CHECK(t.Get("ok") == "1" && t.GetInt("ok") == 1 && t.Get("board") == "0-4-1-0" && t.Get("missing", "x") == "x", "text reply");
         int rows = 0;
         for (const auto& l : t.lines) if (l.first == "row") { ++rows; CHECK(SplitTabs(l.second).size() == 3, "row fields"); }
         CHECK(rows == 2 && SplitTabs(t.lines[3].second)[2] == "Zoe", "text reply rows");
+    }
+
+    std::printf("Key binds\n");
+    {
+        const std::string cfg =
+            "//Warning: This file will automatically be rewritten\r\n"
+            "bind F2 \"togglemenu settings\"\r\n"
+            "bind F6 \"togglemenu console2; \"\r\n"
+            "bind Four \"airlabs_preset_next\"\r\n"
+            "bind o \"airlabs_menu\"\r\n"
+            "bind O \"airlabs_menu\"\r\n"
+            "bind SpaceBar \"boost; airlabs_toggle\"\n"
+            "bind XboxTypeS_Back airlabs_laser_toggle\n"
+            "bind K";
+        CHECK(BoundKey(cfg, "airlabs_menu") == "O", "menu key: %s", BoundKey(cfg, "airlabs_menu").c_str());
+        CHECK(BoundKey(cfg, "airlabs_preset_next") == "4", "digit key");
+        CHECK(BoundKey(cfg, "airlabs_toggle") == "Space", "second command on a line");
+        CHECK(BoundKey(cfg, "togglemenu console2") == "F6", "trailing semicolon");
+        CHECK(BoundKey(cfg, "airlabs_laser_toggle") == "XboxTypeS_Back", "unquoted command");
+        CHECK(BoundKey(cfg, "airlabs_next").empty() && BoundKey("", "airlabs_menu").empty(), "nothing bound");
+        CHECK(BoundKey(cfg, "togglemenu").empty(), "no partial matches");
     }
 
     std::printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "ALL PASSED", failures, failures == 1 ? "" : "s");

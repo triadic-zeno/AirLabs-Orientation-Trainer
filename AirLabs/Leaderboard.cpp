@@ -533,6 +533,8 @@ void AirLabs::StartReplay(CarWrapper car)
     if (play.samples.empty() || car.IsNull()) return;
     if (state == RunState::Running) recording = false; // the run in progress is abandoned
     showResults = false;
+    replayOver = false;
+    RefreshKeys();
     pinLocation = V(0.f, 0.f, kArenaCentreZ);
     car.SetLocation(pinLocation);
     car.SetVelocity(V(0.f, 0.f, 0.f));
@@ -595,8 +597,28 @@ void AirLabs::EndReplay()
     hybridTracking = false;
     locking = false;
     spaceStopped = true; // on the space map the car stays held where it is
+    RefreshKeys();       // in case you've bound a key since it started
+    replayOver = true;
     std::lock_guard<std::mutex> lock(lbMutex);
     lbStatus = "Replay finished: " + playName + ", " + Thousands(play.score) + ".";
     lbStatusGood = true;
     lbStatusWall = Wall();
+}
+
+void AirLabs::RefreshKeys()
+{
+    std::string cfg;
+    try
+    {
+        std::ifstream f(std::filesystem::path(gameWrapper->GetBakkesModPathW()) / "cfg" / "binds.cfg", std::ios::binary);
+        if (f)
+        {
+            std::stringstream ss;
+            ss << f.rdbuf();
+            cfg = ss.str();
+        }
+    }
+    catch (...) {}
+    menuKey = BoundKey(cfg, "airlabs_menu");
+    toggleKey = BoundKey(cfg, "airlabs_toggle");
 }

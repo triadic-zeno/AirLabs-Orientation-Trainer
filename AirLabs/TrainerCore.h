@@ -1004,4 +1004,49 @@ namespace airlabs
     {
         return 0x07AB0000u + static_cast<unsigned>(mode) * 64u + static_cast<unsigned>(preset) + kSeedVersion * 4096u;
     }
+
+    // ------------------------------------------------------------------------------------
+    // Key binds, for on-screen prompts ("PRESS O FOR THE MENU"). BakkesMod keeps them in
+    // bakkesmod/cfg/binds.cfg, one per line:  bind O "airlabs_menu"  or  bind F6 "a; b"
+    // Returns the first key bound to the command, as a player reads it ("O", "F5", "4"), or
+    // "" if none is.
+    // ------------------------------------------------------------------------------------
+    inline std::string BoundKey(const std::string& cfg, const std::string& command)
+    {
+        auto trim = [](const std::string& s) {
+            const char* junk = " \t\r\n\"";
+            const std::size_t a = s.find_first_not_of(junk), b = s.find_last_not_of(junk);
+            return a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
+        };
+        static const char* kDigits[10] = { "Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine" };
+        std::size_t pos = 0;
+        while (pos < cfg.size())
+        {
+            std::size_t end = cfg.find('\n', pos);
+            if (end == std::string::npos) end = cfg.size();
+            const std::string line = trim(cfg.substr(pos, end - pos));
+            pos = end + 1;
+            if (line.rfind("bind ", 0) != 0) continue;
+            const std::size_t k0 = line.find_first_not_of(" \t", 5);
+            const std::size_t k1 = k0 == std::string::npos ? k0 : line.find_first_of(" \t", k0);
+            if (k1 == std::string::npos) continue;
+            std::string key = line.substr(k0, k1 - k0);
+            const std::string cmds = line.substr(k1);
+            bool match = false;
+            for (std::size_t c = 0; c <= cmds.size() && !match;)
+            {
+                std::size_t e = cmds.find(';', c);
+                if (e == std::string::npos) e = cmds.size();
+                match = trim(cmds.substr(c, e - c)) == command;
+                c = e + 1;
+            }
+            if (!match) continue;
+            for (int d = 0; d < 10; ++d)
+                if (key == kDigits[d]) return std::string(1, static_cast<char>('0' + d));
+            if (key.size() == 1 && key[0] >= 'a' && key[0] <= 'z') key[0] = static_cast<char>(key[0] - 'a' + 'A');
+            if (key == "SpaceBar") return "Space";
+            return key;
+        }
+        return "";
+    }
 }

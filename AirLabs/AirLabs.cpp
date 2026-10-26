@@ -158,6 +158,21 @@ namespace
         c.SetPosition(Vector2{ x, y });
         c.FillBox(Vector2{ w, h });
     }
+    // The big red prompt at the top centre of the screen ("POINT AT THE BALL TO START").
+    void DrawPrompt(CanvasWrapper& canvas, const Vector2& screen, const std::string& main, const std::string& sub)
+    {
+        const LinearColor red(255.f, 45.f, 45.f, 255.f);
+        auto centred = [&](const std::string& t, float scale, int y) {
+            Vector2F sz = canvas.GetStringSize(t, scale, scale);
+            canvas.SetColor(red);
+            canvas.SetPosition(Vector2{ static_cast<int>((screen.X - sz.X) * 0.5f), y });
+            canvas.DrawString(t, scale, scale, true);
+            return static_cast<int>(sz.Y);
+        };
+        int py = static_cast<int>(screen.Y * 0.06f);
+        py += centred(main, 3.f, py) + 6;
+        if (!sub.empty()) centred(sub, 2.2f, py);
+    }
     void Bar(CanvasWrapper& c, int x, int y, int w, float frac, const LinearColor& col)
     {
         FillRect(c, x, y, w, 8, LinearColor(255.f, 255.f, 255.f, 60.f));
@@ -411,6 +426,7 @@ void AirLabs::onLoad()
         state = RunState::Idle;
         hasTarget = false;
         spaceStopped = false;
+        replayOver = false;
         spaceCheckWall = -10.0; // the map is changing: look again
     });
     gameWrapper->RegisterDrawable([this](CanvasWrapper canvas) { Render(canvas); });
@@ -744,6 +760,7 @@ void AirLabs::MakeCustom()
 
 void AirLabs::Start()
 {
+    replayOver = false;
     gameWrapper->Execute([this](GameWrapper* gw) {
         const bool inFreeplay = gw->IsInFreeplay();
         spaceCheckWall = -10.0; // look at the map now, not up to a second ago
@@ -777,6 +794,7 @@ void AirLabs::Start()
 void AirLabs::Stop()
 {
     spaceStopped = true; // on the space map the car stays held in the air, without a start ball
+    replayOver = false;
     if (state == RunState::Idle) return;
     state = RunState::Idle;
     showResults = false;
@@ -2266,7 +2284,11 @@ void AirLabs::Render(CanvasWrapper canvas)
     if (*laserEnabled) DrawLaser(canvas);
     Vector2 screen = canvas.GetSize();
     if (*readout) DrawReadout(canvas, screen);
-    if (state == RunState::Idle) return;
+    if (state == RunState::Idle)
+    {
+        if (replayOver) DrawReplayOver(canvas, screen);
+        return;
+    }
 
     const DrillSettings s = CurrentSettings();
 
@@ -2524,7 +2546,9 @@ void AirLabs::Render(CanvasWrapper canvas)
         const int tier = TierIndex(static_cast<float>(play.score), play.mode, play.preset, play.range);
         add("Final score " + FmtInt(play.score) + "   " + TierName(tier), kColGold, 1.2f);
         if (play.mode == kHybrid) add(hybridTracking ? "TRACK IT" : "FLICK", kColWarn, 1.2f);
-        add("Stop watching: your airlabs_toggle key, or Stop in the AirLabs window", kColDim, 1.1f);
+        add(!toggleKey.empty() ? "Stop watching: press " + toggleKey
+            : !menuKey.empty() ? "Stop watching: press " + menuKey + ", then Stop"
+                               : std::string("Stop watching: Stop in the AirLabs window"), kColDim, 1.1f);
         showBar = true;
         barFrac = total > 0.0 ? static_cast<float>(at / total) : 0.f;
         barCol = LinearColor(90.f, 170.f, 255.f, 255.f);
@@ -2551,20 +2575,7 @@ void AirLabs::Render(CanvasWrapper canvas)
     }
 
     // ---- start prompt: top centre, red ----
-    if (!promptMain.empty())
-    {
-        const LinearColor red(255.f, 45.f, 45.f, 255.f);
-        auto centred = [&](const std::string& t, float scale, int y) {
-            Vector2F sz = canvas.GetStringSize(t, scale, scale);
-            canvas.SetColor(red);
-            canvas.SetPosition(Vector2{ static_cast<int>((screen.X - sz.X) * 0.5f), y });
-            canvas.DrawString(t, scale, scale, true);
-            return static_cast<int>(sz.Y);
-        };
-        int py = static_cast<int>(screen.Y * 0.06f);
-        py += centred(promptMain, 3.f, py) + 6;
-        centred(promptSub, 2.2f, py);
-    }
+    if (!promptMain.empty()) DrawPrompt(canvas, screen, promptMain, promptSub);
 
     if (*hudGrid && state == RunState::Running && (runMode == kFlick || runMode == kHybrid))
     {
@@ -2575,6 +2586,33 @@ void AirLabs::Render(CanvasWrapper canvas)
         canvas.DrawString("Times by direction (driver's view)", 1.1f, 1.1f, true);
         DrawRegionGrid(canvas, x, gy + 24);
     }
+}
+
+// When a replay ends: whose run it was, how it finished, and the key back to the menu.
+void AirLabs::DrawReplayOver(CanvasWrapper& canvas, const Vector2& screen)
+{
+    std::string who;
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        who = playName;
+    }
+    std::string label = std::string(ModeName(play.mode)) + "  |  " + PresetRangeLabel(play.mode, play.preset, play.range);
+    if (play.aim == 1) label += "  |  wheels";
+    if (play.flags & kRfNoRoll) label += "  |  NO AIR ROLL";
+    const int tier = TierIndex(static_cast<float>(play.score), play.mode, play.preset, play.range);
+    std::vector<HudLine> L;
+    L.push_back({ "REPLAY OVER  |  " + label, kColTitle, 1.4f });
+    L.push_back({ who, kColText, 2.2f });
+    L.push_back({ "Final score " + FmtInt(play.score) + "   " + TierName(tier), kColGold, 1.2f });
+    L.push_back({ "Watch another on the Leaderboard page", kColDim, 1.1f });
+    const int x = 40, w = 460, y = static_cast<int>(screen.Y * 0.18f);
+    FillRect(canvas, x - 12, y - 10, w, LinesHeight(L) + 16, kColPanel);
+    DrawLines(canvas, x, y, L);
+
+    if (!menuKey.empty())
+        DrawPrompt(canvas, screen, "PRESS " + menuKey + " FOR THE MENU", !toggleKey.empty() ? "or " + toggleKey + " to play" : std::string());
+    else
+        DrawPrompt(canvas, screen, "REPLAY OVER", "Set a key for the menu in F2 > Plugins > AirLabs");
 }
 
 // ===========================================================================

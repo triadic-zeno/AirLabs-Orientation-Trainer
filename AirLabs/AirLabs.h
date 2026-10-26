@@ -54,7 +54,7 @@ public:
     std::string GetMenuTitle() override { return "AirLabs"; }
     bool ShouldBlockInput() override;
     bool IsActiveOverlay() override { return true; }
-    void OnOpen() override { windowOpen = true; }
+    void OnOpen() override { windowOpen = true; replayOver = false; }
     void OnClose() override { windowOpen = false; }
 
 #ifdef AIRLABS_UI_HARNESS
@@ -246,6 +246,12 @@ private:
     void StartReplay(CarWrapper car);
     void ReplayTick(CarWrapper car);
     void EndReplay();
+    // After a replay: a card saying it's over and how to get back to the menu, until you
+    // open the window or start something.
+    std::atomic<bool> replayOver{ false };
+    // Your keys for the prompts, read from bakkesmod/cfg/binds.cfg ("" = not bound).
+    std::string menuKey, toggleKey;
+    void RefreshKeys();
 
     // flick
     double spawnTime = 0.0, nextSpawnAt = 0.0, lockStart = 0.0, firstReach = 0.0;
@@ -422,6 +428,7 @@ private:
     void DrawGuide(CanvasWrapper& canvas, const Vector2& screen);
     void DrawRegionGrid(CanvasWrapper& canvas, int x, int y);
     void DrawReadout(CanvasWrapper& canvas, const Vector2& screen);
+    void DrawReplayOver(CanvasWrapper& canvas, const Vector2& screen);
 
     // ---- settings page ----
     void TabPlay();
