@@ -367,7 +367,7 @@ namespace
         "Turn onto each ball as fast as you can.",
         "Keep your aim on a ball that moves around you.",
         "Flick onto the ball, then track it as it takes off.",
-        "Reach the ball and it dashes off, then stops. Catch it again.",
+        "The ball dashes off and stops. Catch it each time.",
     };
 }
 
