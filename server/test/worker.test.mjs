@@ -178,7 +178,7 @@ test('board list, unknown boards, the web page', async () => {
 });
 
 test('names are cleaned up', () => {
-  assert.equal(cleanName('  Daniel  '), 'Daniel');
+  assert.equal(cleanName('  Pilot  '), 'Pilot');
   assert.equal(cleanName('a\u0000b‮c'), 'abc');
   assert.equal(cleanName(''), 'Player');
   assert.equal([...cleanName('x'.repeat(50))].length, 32);
