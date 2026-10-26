@@ -13,6 +13,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AirLabs.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="Leaderboard.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="TrainerWindow.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="imgui\imgui.cpp"><Filter>imgui</Filter></ClCompile>
     <ClCompile Include="imgui\imgui_draw.cpp"><Filter>imgui</Filter></ClCompile>
@@ -21,6 +22,7 @@
   <ItemGroup>
     <ClInclude Include="AirLabs.h"><Filter>Source</Filter></ClInclude>
     <ClInclude Include="EmbeddedFonts.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="Replay.h"><Filter>Source</Filter></ClInclude>
     <ClInclude Include="TrainerCore.h"><Filter>Source</Filter></ClInclude>
     <ClInclude Include="imgui\imconfig.h"><Filter>imgui</Filter></ClInclude>
     <ClInclude Include="imgui\imgui.h"><Filter>imgui</Filter></ClInclude>

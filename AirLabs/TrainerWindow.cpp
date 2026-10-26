@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -21,7 +22,7 @@ extern ImFont* g_otHeadingFont; // AirLabs.cpp: section headings use this when s
 
 namespace
 {
-    constexpr const char* kWinVersion = "2.5.0";
+    constexpr const char* kWinVersion = "2.6.0";
 
     // ---- palette ----
     constexpr ImU32 Rgb(int r, int g, int b, int a = 255) { return IM_COL32(r, g, b, a); }
@@ -119,7 +120,7 @@ namespace
         }
     };
 
-    // Sidebar entry with a little vector icon. icon: 0 play, 1 stats, 2 assists, 3 help
+    // Sidebar entry with a little vector icon. icon: 0 play, 1 stats, 2 assists, 3 help, 4 leaderboard
     bool NavItem(const char* id, const char* label, int icon, bool active, float width, ImFont* font)
     {
         ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -148,6 +149,11 @@ namespace
             dl->AddLine(ImVec2(c.x + 4, c.y), ImVec2(c.x + 10, c.y), icol, 1.8f);
             dl->AddLine(ImVec2(c.x, c.y - 10), ImVec2(c.x, c.y - 4), icol, 1.8f);
             dl->AddLine(ImVec2(c.x, c.y + 4), ImVec2(c.x, c.y + 10), icol, 1.8f);
+            break;
+        case 4: // a podium
+            dl->AddRectFilled(ImVec2(c.x - 3, c.y - 6), ImVec2(c.x + 3, c.y + 7), icol, 1.f);
+            dl->AddRectFilled(ImVec2(c.x - 9, c.y - 1), ImVec2(c.x - 4, c.y + 7), icol, 1.f);
+            dl->AddRectFilled(ImVec2(c.x + 4, c.y + 2), ImVec2(c.x + 9, c.y + 7), icol, 1.f);
             break;
         default:
         {
@@ -496,6 +502,7 @@ void AirLabs::DrawTrainerWindow()
     case 1:  WinStats();   break;
     case 2:  WinAssists(); break;
     case 3:  WinHelp();    break;
+    case 4:  WinLeaderboard(); break;
     default: WinPlay();    break;
     }
     ImGui::Dummy(ImVec2(0, 10));
@@ -654,9 +661,12 @@ void AirLabs::WinSidebar(float height)
     DrawText(dl, uiFonts[kFontBold], ImVec2(p.x + 58.f, c.y - SizeOf(uiFonts[kFontBold]) * 0.5f - 1.f), kText, "AirLabs");
     ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + 92.f));
 
-    static const char* labels[4] = { "Play", "Stats", "Assists", "Help" };
-    for (int i = 0; i < 4; ++i)
+    // Pages in sidebar order (the numbers are uiPage values).
+    static const int order[5] = { 0, 1, 4, 2, 3 };
+    static const char* labels[5] = { "Play", "Stats", "Assists", "Help", "Leaderboard" };
+    for (int k = 0; k < 5; ++k)
     {
+        const int i = order[k];
         ImGui::SetCursorPosX(12.f);
         ImGui::PushID(i);
         if (NavItem("##nav", labels[i], i, uiPage == i, w - 24.f, uiFonts[kFontBold])) uiPage = i;
@@ -673,6 +683,7 @@ void AirLabs::WinSidebar(float height)
     std::string status = "Not running";
     if (state == RunState::Ready)   { dotCol = kWarn; status = showResults ? "Run finished" : "Point at the ball"; }
     if (state == RunState::Running) { dotCol = kGood; status = runEnd < 1e17 ? "Running  " + std::string(Fmt("%.0f s left", std::max(0.0, runEnd - gameTime))) : "Running"; }
+    if (state == RunState::Replay)  { dotCol = kAccentHi; status = "Watching a replay"; }
     dl->AddCircleFilled(ImVec2(top.x + 18.f, top.y + 22.f), 5.f, dotCol, 16);
     DrawText(dl, uiFonts[kFontBold], ImVec2(top.x + 30.f, top.y + 12.f), kText, status.c_str());
     DrawText(dl, uiFonts[kFontSmall], ImVec2(top.x + 14.f, top.y + 44.f), kDim, "Open or close this window:");
@@ -790,7 +801,7 @@ void AirLabs::WinPlay()
         // The button, vertically centred on the right.
         ImVec2 btnPos(cardTop.x + card.Inner() - btnW, cardTop.y + std::max(0.f, (leftH - btnH) * 0.5f) - (state == RunState::Running && s.mode != kTrack && s.mode != kChase ? 12.f : 0.f));
         ImGui::SetCursorScreenPos(btnPos);
-        const bool running = state == RunState::Ready || state == RunState::Running;
+        const bool running = state == RunState::Ready || state == RunState::Running || state == RunState::Replay;
         if (BigButton("##otstart", running ? "STOP" : "START", running, ImVec2(btnW, btnH), uiFonts[kFontHeading]))
         {
             cvarManager->executeCommand("airlabs_toggle");
@@ -1126,4 +1137,246 @@ void AirLabs::WinHelp()
     ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + std::min(760.f, ImGui::GetContentRegionAvail().x));
     TabHelp();
     ImGui::PopTextWrapPos();
+}
+
+// ===========================================================================
+// Leaderboard
+// ===========================================================================
+
+void AirLabs::WinLeaderboard()
+{
+    const float width = ImGui::GetContentRegionAvail().x - 34.f; // keep clear of the close button
+    ImFont* small = uiFonts[kFontSmall];
+    ImFont* bold = uiFonts[kFontBold];
+    const double wall = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+
+    // Start on the preset you're playing.
+    if (lbMode < 0)
+    {
+        const DrillSettings s = CurrentSettings();
+        lbMode = s.mode;
+        lbPreset = s.custom ? 0 : s.preset;
+        lbRange = s.range;
+        lbNoRoll = noAirRoll && *noAirRoll;
+    }
+    lbMode = std::clamp(lbMode, 0, kModeCount - 1);
+    lbPreset = std::clamp(lbPreset, 0, PresetCount(lbMode) - 1);
+    const bool usesRange = PresetUsesRange(lbMode, lbPreset);
+    const bool rollOk = !(lbMode == kFlick && kFlickPresets[lbPreset].aim == 1); // wheels aim needs roll
+    const std::string key = BoardKey(lbMode, lbPreset, lbRange, lbNoRoll && rollOk);
+    FetchBoard(key);
+    if (lbName.empty() && wall - lbNameAsked > 5.0)
+    {
+        lbNameAsked = wall;
+        gameWrapper->Execute([this](GameWrapper* gw) {
+            std::string n = Utf8FromWide(gw->GetPlayerName().ToWideString());
+            std::lock_guard<std::mutex> lock(lbMutex);
+            lbName = n;
+        });
+    }
+
+    // Copy what the page needs out of the shared state.
+    LbBoard board;
+    std::string status, pid, name, watchName, playErr;
+    bool statusGood = true, uploading = false;
+    int loading = 0;
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        board = lbBoards[key];
+        status = wall - lbStatusWall < 600.0 ? lbStatus : std::string();
+        statusGood = lbStatusGood;
+        uploading = lbUploading;
+        pid = lbPid;
+        name = lbName;
+        loading = loadingRun;
+        watchName = playName;
+        playErr = playError;
+    }
+
+    {
+        FontScope f(uiFonts[kFontTitle]);
+        ImGui::TextUnformatted("Leaderboard");
+    }
+    {
+        FontScope f(small);
+        ImGui::TextDisabled("Everyone's best one-minute run on every preset. Every run is checked by replaying it, and you can watch any of them.");
+    }
+    ImGui::Dummy(ImVec2(0, 2));
+
+    // ---- watching now ----
+    if (state == RunState::Replay)
+    {
+        Card c;
+        c.Begin(width, 16.f);
+        Dot(kAccentHi);
+        {
+            FontScope f(bold);
+            ImGui::TextUnformatted(("Watching " + watchName + "'s run: " + FmtInt(play.score)).c_str());
+        }
+        ImGui::SameLine(0, 16);
+        if (Chip("##stopwatch", "Stop watching", false, small, 28.f)) cvarManager->executeCommand("airlabs_stop");
+        c.End(kAccentBg, kAccent);
+        ImGui::Dummy(ImVec2(0, 2));
+    }
+
+    // ---- posting: opt in, and how the last post went ----
+    const bool posting = lbPost && *lbPost;
+    if (!posting)
+    {
+        Card c;
+        c.Begin(width, 20.f);
+        {
+            FontScope f(uiFonts[kFontHeading]);
+            ImGui::TextUnformatted("Put your runs on the leaderboard");
+        }
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kDim));
+        ImGui::TextWrapped("Your best run on each preset goes on this public leaderboard under your Rocket League name%s, with its replay so anyone can watch it. "
+                           "Only preset runs count, and the server checks every run by playing it back before it's accepted.",
+                           name.empty() ? "" : (" (" + name + ")").c_str());
+        ImGui::PopStyleColor();
+        ImGui::Dummy(ImVec2(0, 2));
+        if (Chip("##lbjoin", "Post my runs", true, bold, 36.f)) SetCvarI("airlabs_lb_post", 1);
+        c.End();
+    }
+    else
+    {
+        Dot(kGood);
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kGood), "%s", name.empty() ? "Posting your runs" : ("Posting your runs as " + name).c_str());
+        ImGui::SameLine(0, 14);
+        if (LinkButton("##lbstop", "Stop posting", small)) SetCvarI("airlabs_lb_post", 0);
+    }
+    if (!status.empty() || uploading)
+    {
+        FontScope f(small);
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(statusGood ? kDim : kWarn), "%s", uploading ? "Posting your run..." : status.c_str());
+    }
+    if (!playErr.empty())
+    {
+        FontScope f(small);
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kWarn), "Replay: %s", playErr.c_str());
+    }
+
+    // ---- which board ----
+    SectionLabel(small, "BOARD");
+    {
+        static const char* modes[kModeCount] = { "Flick", "Track", "Hybrid", "Chase" };
+        int m = Segmented("##lbmode", modes, nullptr, kModeCount, lbMode, std::min(width, 520.f), 40.f, bold, nullptr);
+        if (m >= 0 && m != lbMode) { lbMode = m; lbPreset = m == kFlick ? 4 : 1; }
+        ImGui::Dummy(ImVec2(0, 2));
+        ImGui::PushID("lbpresets");
+        for (int p = 0; p < PresetCount(lbMode); ++p)
+        {
+            const std::string label = PresetLabel(lbMode, p);
+            if (p) SameLineIfRoom(ChipWidth(bold, label.c_str()));
+            ImGui::PushID(p);
+            if (Chip("##p", label.c_str(), p == lbPreset, bold)) lbPreset = p;
+            ImGui::PopID();
+        }
+        ImGui::PopID();
+        ImGui::Dummy(ImVec2(0, 2));
+        if (usesRange)
+        {
+            static const char* ranges[kRangeCount] = { "Short", "Medium", "Long" };
+            int r = Segmented("##lbrange", ranges, nullptr, kRangeCount, lbRange, 330.f, 36.f, bold, nullptr);
+            if (r >= 0) lbRange = r;
+            ImGui::SameLine(0, 14);
+        }
+        if (rollOk)
+        {
+            if (Chip("##lbnoroll", lbNoRoll ? "No air roll: ON" : "No air roll: OFF", lbNoRoll, bold, 36.f)) lbNoRoll = !lbNoRoll;
+        }
+        else
+        {
+            FontScope f(small);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("Flip Reset has one board: the ball is always 350 uu away, and wheels aim needs air roll.");
+        }
+    }
+
+    // ---- the board ----
+    ImGui::Dummy(ImVec2(0, 6));
+    Card c;
+    c.Begin(width, 0.f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float inner = width;
+    {
+        // header: title, players, refresh
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        std::string title = board.title.empty() ? std::string(ModeName(lbMode)) + " " + PresetLabel(lbMode, lbPreset) : board.title;
+        DrawText(dl, uiFonts[kFontHeading], ImVec2(p.x + 18.f, p.y + 14.f), kText, title.c_str());
+        std::string count = board.loaded && board.total > 0 ? (board.total == 1 ? "1 player" : FmtInt(board.total) + " players") : std::string();
+        const float tw = TextSize(uiFonts[kFontHeading], title.c_str()).x;
+        DrawText(dl, small, ImVec2(p.x + 18.f + tw + 12.f, p.y + 14.f + SizeOf(uiFonts[kFontHeading]) - SizeOf(small) - 2.f), kFaint, count.c_str());
+        ImGui::SetCursorScreenPos(ImVec2(p.x + inner - 90.f, p.y + 14.f));
+        if (LinkButton("##lbrefresh", board.loading ? "Loading..." : "Refresh", small) && !board.loading) FetchBoard(key, true);
+        ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + 52.f));
+        dl->AddLine(ImVec2(p.x, p.y + 52.f), ImVec2(p.x + inner, p.y + 52.f), kBorder);
+    }
+    const float rowH = 42.f;
+    auto drawRow = [&](const LbRow& r, bool mine, bool alt) {
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::PushID(r.run);
+        ImGui::Dummy(ImVec2(inner, rowH));
+        if (mine) dl->AddRectFilled(p, ImVec2(p.x + inner, p.y + rowH), kAccentBg);
+        else if (alt) dl->AddRectFilled(p, ImVec2(p.x + inner, p.y + rowH), Rgb(255, 255, 255, 6));
+        const float cy = p.y + rowH * 0.5f;
+        const std::string pos = "#" + std::to_string(r.pos);
+        DrawText(dl, bold, ImVec2(p.x + 18.f, cy - SizeOf(bold) * 0.5f), r.pos == 1 ? kGold : r.pos <= 3 ? kText : kDim, pos.c_str());
+        RankState rs;
+        rs.value = TierIndex(static_cast<float>(r.score), lbMode, lbPreset, lbRange) / 3.f + 0.001f;
+        rs.runs = kPlacementRuns;
+        const float bw = RankBadge(rs, 22.f, small, dl, ImVec2(p.x + 76.f, cy - 11.f));
+        const float nx = p.x + 76.f + std::max(bw, 30.f) + 14.f;
+        DrawText(dl, bold, ImVec2(nx, cy - SizeOf(bold) * 0.5f), kText, r.name.c_str());
+        const float nw = TextSize(bold, r.name.c_str()).x;
+        DrawText(dl, small, ImVec2(nx + nw + 10.f, cy - SizeOf(small) * 0.5f + 1.f), kFaint, (r.platform + (mine ? "  \xC2\xB7  you" : "")).c_str());
+        const std::string sc = FmtInt(r.score);
+        const float scoreRight = p.x + inner - 230.f;
+        DrawText(dl, bold, ImVec2(scoreRight - TextSize(bold, sc.c_str()).x, cy - SizeOf(bold) * 0.5f), kText, sc.c_str());
+        DrawText(dl, small, ImVec2(scoreRight + 24.f, cy - SizeOf(small) * 0.5f), kFaint, r.date.c_str());
+        ImGui::SetCursorScreenPos(ImVec2(p.x + inner - 104.f, cy - 15.f));
+        const bool thisLoading = loading == r.run;
+        if (Chip("##watch", thisLoading ? "Loading" : "Watch", false, small, 30.f) && loading == 0)
+        {
+            WatchReplay(r.run);
+            closeRequested = true; // close the window: the replay plays in the game
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Watch this run in the game (in Freeplay; it loads the map if you're not there)");
+        ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + rowH));
+        ImGui::PopID();
+    };
+    auto message = [&](const char* text, ImU32 col) {
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(inner, 70.f));
+        const ImVec2 ts = TextSize(uiFonts[kFontBody], text, inner - 40.f);
+        DrawText(dl, uiFonts[kFontBody], ImVec2(p.x + (inner - ts.x) * 0.5f, p.y + (70.f - ts.y) * 0.5f), col, text, inner - 40.f);
+    };
+    if (!board.error.empty() && board.rows.empty()) message(board.error.c_str(), kWarn);
+    else if (!board.loaded) message("Loading...", kDim);
+    else if (board.rows.empty()) message("No runs on this board yet. Play it with Post my runs on, and the top spot is yours.", kDim);
+    else
+    {
+        bool meShown = false;
+        for (std::size_t i = 0; i < board.rows.size(); ++i)
+        {
+            const bool mine = !pid.empty() && board.rows[i].pid == pid;
+            meShown |= mine;
+            drawRow(board.rows[i], mine, i % 2 == 1);
+        }
+        if (!meShown && board.mePos > 0)
+        {
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            dl->AddLine(ImVec2(p.x, p.y), ImVec2(p.x + inner, p.y), kBorder);
+            LbRow me;
+            me.pos = board.mePos; me.score = board.meScore; me.run = board.meRun; me.pid = pid;
+            me.name = name.empty() ? std::string("You") : name;
+            drawRow(me, true, false);
+        }
+    }
+    ImGui::Dummy(ImVec2(0, 4));
+    c.End();
+    {
+        FontScope f(small);
+        ImGui::TextDisabled("Also on the web: %s", LbUrl("").c_str());
+    }
 }

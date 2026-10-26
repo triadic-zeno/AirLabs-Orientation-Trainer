@@ -5,6 +5,7 @@
 #include <string>
 struct Vector { float X, Y, Z; };
 #include "TrainerCore.h"
+#include "Replay.h"
 
 using namespace airlabs;
 static int failures = 0;
@@ -315,6 +316,54 @@ int main()
         CHECK(!PresetUsesRange(kFlick, 5) && PresetDistance(kFlick, 5, kLong) == 350.f, "Flip Reset fixed at 350 uu");
         CHECK(PresetUsesRange(kFlick, 0) && PresetDistance(kFlick, 0, kShort) == 400.f && PresetDistance(kTrack, 2, kLong) == 900.f, "other presets follow the range");
         std::printf("  Flip Reset (fixed) %3.0f uu: target %.1f deg\n", PresetDistance(kFlick, 5, 0), BallTargetDeg(PresetDistance(kFlick, 5, 0)));
+    }
+
+    std::printf("== Replays: write, read back, base64, text replies ==\n");
+    {
+        Replay r;
+        r.mode = kHybrid; r.preset = 2; r.range = kLong; r.aim = 0; r.flags = kRfNoRoll | kRfTickTiming;
+        r.distance = 900.f; r.targetDeg = BallTargetDeg(900.f); r.runSec = 60.0000032f; r.tickRate = 120.f;
+        r.score = 41250; r.targets = 12; r.misses = 3; r.hybReps = 12; r.version = "2.6.0";
+        std::mt19937 g(5);
+        std::uniform_int_distribution<int> u(-32768, 32767);
+        for (int i = 0; i < 7200; ++i)
+        {
+            ReplaySample s;
+            s.ms = static_cast<std::uint16_t>((i + 1) * 1000 / 120);
+            s.pitch = static_cast<std::int16_t>(u(g)); s.yaw = static_cast<std::int16_t>(u(g)); s.roll = static_cast<std::int16_t>(u(g));
+            s.dx = PackUnit(0.6f); s.dy = PackUnit(-0.8f); s.dz = PackUnit(0.f);
+            r.samples.push_back(s);
+        }
+        r.events.push_back({ 0, kEvSpawn, 93.5f });
+        r.events.push_back({ 77, kEvHit, 1712.25f });
+        std::string bytes = SerializeReplay(r);
+        CHECK(bytes.size() == kReplayHeaderBytes + 7200 * kReplaySampleBytes + 2 * kReplayEventBytes, "replay size %zu", bytes.size());
+        Replay back;
+        std::string err;
+        CHECK(ParseReplay(bytes, back, &err), "parse failed: %s", err.c_str());
+        CHECK(back.mode == r.mode && back.preset == r.preset && back.range == r.range && back.flags == r.flags && back.score == r.score &&
+              back.version == "2.6.0" && back.samples.size() == 7200 && back.events.size() == 2, "replay header round trip");
+        bool same = true;
+        for (int i = 0; i < 7200; ++i)
+            same &= back.samples[i].yaw == r.samples[i].yaw && back.samples[i].roll == r.samples[i].roll && back.samples[i].dy == r.samples[i].dy && back.samples[i].ms == r.samples[i].ms;
+        CHECK(same, "replay samples round trip");
+        CHECK(back.events[1].tick == 77 && back.events[1].type == kEvHit && back.events[1].value == 1712.25f, "replay events round trip");
+        CHECK(!ParseReplay(bytes.substr(0, bytes.size() - 1), back), "truncated replay accepted");
+        std::string b64 = Base64Encode(bytes), dec;
+        CHECK(Base64Decode(b64, dec) && dec == bytes, "base64 round trip");
+        for (const char* t : { "", "f", "fo", "foo", "foob", "fooba", "foobar" })
+        {
+            std::string e = Base64Encode(t), d;
+            CHECK(Base64Decode(e, d) && d == t, "base64 of '%s'", t);
+        }
+        CHECK(Base64Encode("foobar") == "Zm9vYmFy" && Base64Encode("fo") == "Zm8=", "base64 alphabet");
+        CHECK(JsonString("a\"b\\c\n\x01") == "\"a\\\"b\\\\c\\n\\u0001\"", "json escaping: %s", JsonString("a\"b\\c\n\x01").c_str());
+        CHECK(Utf8FromWide(L"Zo\u00EB") == "Zo\xC3\xAB", "utf8 from wide");
+        TextReply t = ParseTextReply("ok 1\nboard 0-4-1-0\nrow 1\tabc\tDaniel\r\nrow 2\tdef\tZoe\n");
+        CHECK(t.Get("ok") == "1" && t.GetInt("ok") == 1 && t.Get("board") == "0-4-1-0" && t.Get("missing", "x") == "x", "text reply");
+        int rows = 0;
+        for (const auto& l : t.lines) if (l.first == "row") { ++rows; CHECK(SplitTabs(l.second).size() == 3, "row fields"); }
+        CHECK(rows == 2 && SplitTabs(t.lines[3].second)[2] == "Zoe", "text reply rows");
     }
 
     std::printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "ALL PASSED", failures, failures == 1 ? "" : "s");

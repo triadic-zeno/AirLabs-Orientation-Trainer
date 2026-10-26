@@ -22,6 +22,8 @@ endif()
 set(SRC "${CMAKE_CURRENT_SOURCE_DIR}/AirLabs")
 add_library(AirLabs SHARED
   "${SRC}/AirLabs.cpp"
+  "${SRC}/Leaderboard.cpp"
+  "${SRC}/Replay.h"
   "${SRC}/AirLabs.h"
   "${SRC}/TrainerWindow.cpp"
   "${SRC}/TrainerCore.h"

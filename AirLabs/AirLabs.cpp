@@ -1,5 +1,6 @@
 #include "AirLabs.h"
 #include "imgui/imgui.h"
+#include "bakkesmod/wrappers/http/HttpWrapper.h"
 
 #include <algorithm>
 #include <cctype>
@@ -17,14 +18,16 @@
 
 using namespace airlabs;
 
-BAKKESMOD_PLUGIN(AirLabs, "AirLabs", "2.5.0", PLUGINTYPE_FREEPLAY)
+BAKKESMOD_PLUGIN(AirLabs, "AirLabs", "2.6.0", PLUGINTYPE_FREEPLAY)
 
 // Set by the trainer window while it draws, so shared section headings use its font.
 ImFont* g_otHeadingFont = nullptr;
 
 namespace
 {
-    constexpr const char* kVersion = "2.5.0";
+    constexpr const char* kVersion = "2.6.0";
+    // The public leaderboard (a Cloudflare Worker, see server/ in the source).
+    constexpr const char* kLeaderboardUrl = "https://leaderboard.airlabs.workers.dev";
     const char* kTickEvent = "Function TAGame.Car_TA.SetVehicleInput";
     const char* kEndEvent = "Function TAGame.GameEvent_Soccar_TA.Destroyed";
     // Space map: which way runs start (as a goal side, -1 = towards -Y). The galactic centre
@@ -384,12 +387,16 @@ void AirLabs::onLoad()
     notifier("airlabs_space", [this] { SetCvarI("airlabs_map", 0); LoadSpaceMap(); }, "Go to the AirLabs space map (Freeplay, car held in the air); Start takes you there from now on");
     notifier("airlabs_standard", [this] { SetCvarI("airlabs_map", 1); LoadStandardMap(); }, "Go back to the standard field (DFH Stadium Freeplay); Start uses it from now on");
     notifier("airlabs_menu", [this] { ToggleWindow(); }, "Open or close the AirLabs window (bind it: bind O airlabs_menu)");
+    cvarManager->registerNotifier("airlabs_watch", [this](std::vector<std::string> args) {
+        if (args.size() > 1) WatchReplay(std::atoi(args[1].c_str()));
+    }, "Watch a leaderboard run's replay: airlabs_watch <run number>", PERMISSION_ALL);
     LoadFonts();
 
     LoadRegionStats();
     MigrateOldData();
     LoadRecords();
     LoadSavedPresets();
+    LoadLeaderboardFile();
     {
         std::error_code ec;
         haveSpaceMap = std::filesystem::exists(SpaceMapPath(), ec);
@@ -412,6 +419,7 @@ void AirLabs::onLoad()
 
 void AirLabs::onUnload()
 {
+    lbAlive->store(false);
     state = RunState::Idle;
     gameWrapper->UnhookEvent(kTickEvent);
     gameWrapper->UnhookEvent(kEndEvent);
@@ -444,6 +452,7 @@ void AirLabs::RegisterCvars()
     mapPref = mkI(0);
     hudGrid = mkB(false); blockJumpBoost = mkB(true);
     laserLength = mkF(6000.f); laserWidth = mkF(3.f); guideAccel = mkF(450.f); guideMode = mkI(0);
+    lbPost = mkB(false); lbUrl = std::make_shared<std::string>(kLeaderboardUrl);
 
     reg("airlabs_mode", "0", "0 = Flick, 1 = Track, 2 = Hybrid, 3 = Chase", 0.f, static_cast<float>(kModeCount - 1)).bindTo(mode);
     reg("airlabs_preset_flick", "4", "Flick preset (last = Custom)", 0.f, maxIdx(kFlick)).bindTo(presetFlick);
@@ -494,6 +503,10 @@ void AirLabs::RegisterCvars()
     reg("airlabs_readout", "0", "Readout: stick %, spin speed, ball speed, physics rate", 0.f, 1.f).bindTo(readout);
     reg("airlabs_hud_grid", "0", "Show the times-by-direction grid during Flick and Hybrid", 0.f, 1.f).bindTo(hudGrid);
     reg("airlabs_block_jump", "1", "Custom runs: block jump and boost while pinned", 0.f, 1.f).bindTo(blockJumpBoost);
+
+    // Leaderboard
+    reg("airlabs_lb_post", "0", "Post your preset runs to the public AirLabs leaderboard (your best per preset, with its replay, under your Rocket League name)", 0.f, 1.f).bindTo(lbPost);
+    cvarManager->registerCvar("airlabs_lb_url", kLeaderboardUrl, "AirLabs leaderboard server", true).bindTo(lbUrl);
 }
 
 // ===========================================================================
@@ -858,6 +871,12 @@ void AirLabs::BeginRunning(const Basis& b, const DrillSettings& s)
     // nothing can be learnt by heart. (Over a one-minute run the luck evens out to a few %.)
     rng.seed(std::random_device{}());
 
+    // Preset runs are recorded tick by tick, for the leaderboard.
+    recording = !s.custom;
+    recClockTicks = 0;
+    recReplay = Replay{};
+    if (recording) recReplay.samples.reserve(static_cast<std::size_t>(kPresetRunSec * 120.f) + 8);
+
     if (s.mode == kTrack)
     {
         // The start ball becomes the moving ball.
@@ -874,6 +893,7 @@ void AirLabs::BeginRunning(const Basis& b, const DrillSettings& s)
         chase.path.pos = startDir;
         chaseOnSince = -1.0;
         ChaseLaunch(chase, rng, b, ChaseParamsFor(s), gameTime);
+        RecEvent(kEvChaseLaunch);
         hasTarget = true;
         locking = true;
         prevErr = -1.f;
@@ -948,6 +968,25 @@ void AirLabs::EndRun(CarWrapper car, const Basis& b, const DrillSettings& s)
     AppendRecordToFile(rec);
     cvarManager->log("[AirLabs] " + r.share);
 
+    // Leaderboard: a preset run that counts, posted if you've opted in and it might be a new best.
+    if (recording)
+    {
+        recording = false;
+        Replay& rp = recReplay;
+        rp.mode = static_cast<std::uint8_t>(s.mode); rp.preset = static_cast<std::uint8_t>(s.preset);
+        rp.range = static_cast<std::uint8_t>(PresetUsesRange(s.mode, s.preset) ? s.range : 0);
+        rp.aim = static_cast<std::uint8_t>(s.aim);
+        rp.flags = static_cast<std::uint8_t>((s.noRoll ? kRfNoRoll : 0) | (r.flags.find("keyboard") != std::string::npos ? kRfKeyboard : 0) |
+                                             (recClockTicks == 0 ? kRfTickTiming : 0));
+        rp.distance = s.distance; rp.targetDeg = s.target;
+        rp.runSec = static_cast<float>(gameTime - runStart);
+        rp.tickRate = measuredRate;
+        rp.score = r.score;
+        rp.targets = static_cast<std::uint16_t>(r.targets); rp.misses = static_cast<std::uint16_t>(r.misses); rp.hybReps = static_cast<std::uint16_t>(r.hybReps);
+        rp.version = kVersion;
+        if (r.counted && !s.custom && s.userPreset == 0 && *lbPost) UploadRun(rp);
+    }
+
     // Reset the car and the ball for the next round, with the results kept on screen until
     // the next run begins. The start ball can't be locked for a moment, so there's time to
     // read the results before the next run can start.
@@ -964,7 +1003,7 @@ void AirLabs::EndRun(CarWrapper car, const Basis& b, const DrillSettings& s)
 
 void AirLabs::OnPhysicsTick(CarWrapper car, void* params)
 {
-    if (state == RunState::Idle && !*readout && !startOnLoad && !OnSpaceMap()) return;
+    if (state == RunState::Idle && !*readout && !startOnLoad && pendingReplayRun == 0 && !OnSpaceMap()) return;
     if (!gameWrapper->IsInFreeplay())
     {
         if (state != RunState::Idle) { state = RunState::Idle; hasTarget = false; }
@@ -1025,6 +1064,12 @@ void AirLabs::OnPhysicsTick(CarWrapper car, void* params)
         }
         startOnLoad = false;
     }
+    // Watch was pressed outside Freeplay: the map has loaded, so the replay starts now.
+    if (pendingReplayRun != 0 && !play.samples.empty())
+    {
+        if (WallSeconds() - replayOnLoadWall < 30.0 && state != RunState::Running) StartReplay(car);
+        pendingReplayRun = 0;
+    }
     if (state == RunState::Idle && OnSpaceMap())
     {
         if (!spaceStopped)
@@ -1055,6 +1100,12 @@ void AirLabs::OnPhysicsTick(CarWrapper car, void* params)
             for (float v : a) { any |= v > 0.02f; partial |= v > 0.02f && v < 0.98f; }
             if (any) ++run.inputTicks;
             if (partial) ++run.analogTicks;
+        }
+        if (state == RunState::Replay)
+        {
+            // Watching a replay: the replay drives the car, so your own input does nothing.
+            input->Pitch = input->Yaw = input->Roll = input->Throttle = input->Steer = 0.f;
+            input->Jump = 0; input->ActivateBoost = 0; input->HoldingBoost = 0; input->Handbrake = 0;
         }
         if (active && s.noRoll) input->Roll = 0; // No air roll: air roll left/right and free air roll do nothing
         if (active && s.blockJump)
@@ -1151,7 +1202,15 @@ void AirLabs::OnPhysicsTick(CarWrapper car, void* params)
         {
             FlickTick(b, aim, s, dt);
         }
+        if (state == RunState::Running && recording)
+        {
+            if (!tickTiming) ++recClockTicks;
+            RecordTick(rot);
+        }
         if (state == RunState::Running && gameTime >= runEnd) EndRun(car, b, s);
+        break;
+    case RunState::Replay:
+        ReplayTick(car);
         break;
     default:
         break;
@@ -1281,7 +1340,9 @@ ChaseParams AirLabs::ChaseParamsFor(const DrillSettings& s)
 void AirLabs::ChaseStep(const Basis& b, const Vector& aim, const DrillSettings& s, float dt)
 {
     const ChaseParams cp = ChaseParamsFor(s);
+    const bool wasMoving = chase.moving;
     ChaseAdvance(chase, rng, b, cp, gameTime, dt);
+    if (wasMoving && !chase.moving) RecEvent(kEvChaseStop);
     targetLocation = BallSpot(chase.path.pos, s);
 
     float err = AngleDeg(aim, chase.path.pos);
@@ -1314,13 +1375,17 @@ void AirLabs::ChaseStep(const Basis& b, const Vector& aim, const DrillSettings& 
         run.lastTime = t;
         if (run.bestTime < 0.0 || t < run.bestTime) run.bestTime = t;
         lastFlash = Flash::Hit;
+        RecEvent(kEvChaseCatch, static_cast<float>(t));
         ChaseLaunch(chase, rng, b, cp, gameTime);
+        RecEvent(kEvChaseLaunch);
     }
     else if (s.timeout > 0.f && gameTime - chase.stoppedAt > s.timeout)
     {
         ++run.misses; // lost it: it moves on anyway
         lastFlash = Flash::Miss;
+        RecEvent(kEvChaseMiss);
         ChaseLaunch(chase, rng, b, cp, gameTime);
+        RecEvent(kEvChaseLaunch);
     }
 }
 
@@ -1331,6 +1396,7 @@ void AirLabs::SpawnTarget(const Basis& b, const DrillSettings& s)
     targetLocation = BallSpot(r.dir, s);
     targetRegion = r.region;
     targetAngle = AngleDeg(AimVec(b, s.aim), r.dir);
+    RecEvent(kEvSpawn, targetAngle);
 
     hasTarget = true;
     locking = false;
@@ -1355,7 +1421,9 @@ void AirLabs::FinishTarget(bool success, const Basis& b, const DrillSettings& s)
         // itself isn't counted.
         double reachT = (reached ? firstReach : lockStart) - spawnTime;
         double t = s.settle ? lockStart - spawnTime : reachT;
-        run.score += FlickPoints(t, targetAngle);
+        const float pts = FlickPoints(t, targetAngle);
+        run.score += pts;
+        RecEvent(kEvHit, pts);
         ++run.targets;
         run.sumTime += t;
         run.lastTime = t;
@@ -1370,6 +1438,7 @@ void AirLabs::FinishTarget(bool success, const Basis& b, const DrillSettings& s)
     else
     {
         ++run.misses;
+        RecEvent(kEvMiss, static_cast<float>(std::min<double>(run.score, kMissPenalty)));
         run.score = std::max(0.0, run.score - kMissPenalty); // a miss costs points as well as time
         run.streak = 0;
         lastFlash = Flash::Miss;
@@ -1390,6 +1459,7 @@ void AirLabs::StartHybridTrack(const Basis& b, const DrillSettings& s)
 {
     PathStart(path, rng, Norm(Sub(targetLocation, pinLocation)), b, HybridPath(s.path), gameTime); // holds its take-off direction
     hybridTracking = true;
+    RecEvent(kEvHybridStart);
     hybridTrackEnd = gameTime + s.hybridTrack;
     hybOn = hybTotal = 0.0;
     hasTarget = true;
@@ -1401,6 +1471,7 @@ void AirLabs::StartHybridTrack(const Basis& b, const DrillSettings& s)
 void AirLabs::EndHybridRep(const DrillSettings& s)
 {
     double pct = hybTotal > 0.0 ? 100.0 * hybOn / hybTotal : 0.0;
+    RecEvent(kEvHybridEnd, static_cast<float>(pct));
     run.hybPctSum += pct;
     ++run.hybReps;
     run.lastHybPct = pct;
@@ -2246,7 +2317,7 @@ void AirLabs::Render(CanvasWrapper canvas)
         {
             LinearColor col = locking ? kColGood : (settling || aimErrorDeg < kNearDeg) ? kColWarn : kColBad;
             if (state == RunState::Ready && !locking) col = kColWarn;
-            drawRing(targetLocation, s.target, col, 2.5f);
+            drawRing(targetLocation, state == RunState::Replay ? play.targetDeg : s.target, col, 2.5f);
         }
     }
 
@@ -2262,7 +2333,7 @@ void AirLabs::Render(CanvasWrapper canvas)
                                            : customRun ? "Custom" + Fmt(" (%.0f uu)", s.distance) : PresetRangeLabel(runMode, runPreset, runRange));
     if (runAim == 1) title += "  |  wheels";
     if (runNoRoll) title += "  |  NO AIR ROLL";
-    add(title, kColTitle);
+    if (state != RunState::Replay) add(title, kColTitle);
 
     bool showBar = false, bestBar = false;
     float barFrac = 0.f, bestFill = 0.f, bestMark = 0.f, paceMark = 0.f;
@@ -2331,6 +2402,10 @@ void AirLabs::Render(CanvasWrapper canvas)
                 for (int i = 0; i < kSpeedBands; ++i) curve += " " + OrDash(r.bandPct[i], "%.0f%%");
                 add(curve, kColDim, 1.2f);
             }
+        }
+        {
+            std::lock_guard<std::mutex> lock(lbMutex);
+            if (!lbStatus.empty() && WallSeconds() - lbStatusWall < 120.0) add(lbStatus, lbStatusGood ? kColGood : kColWarn, 1.1f);
         }
         add("Copy result: F2 > Plugins > AirLabs", kColDim, 1.1f);
     };
@@ -2426,6 +2501,30 @@ void AirLabs::Render(CanvasWrapper canvas)
     else if (state == RunState::Results)
     {
         addResults();
+    }
+    else if (state == RunState::Replay)
+    {
+        // Watching a leaderboard run.
+        std::string who;
+        {
+            std::lock_guard<std::mutex> lock(lbMutex);
+            who = playName;
+        }
+        std::string label = std::string(ModeName(play.mode)) + "  |  " + PresetRangeLabel(play.mode, play.preset, play.range);
+        if (play.aim == 1) label += "  |  wheels";
+        if (play.flags & kRfNoRoll) label += "  |  NO AIR ROLL";
+        add("REPLAY  |  " + label, kColTitle);
+        add(who, kColText, 2.2f);
+        const double total = play.samples.empty() ? 0.0 : play.samples.back().ms / 1000.0;
+        const double at = playTick < play.samples.size() ? play.samples[playTick].ms / 1000.0 : total;
+        add(FmtClock(std::max(0.0, total - at)) + " left      Score " + FmtInt(std::llround(playScore)));
+        const int tier = TierIndex(static_cast<float>(play.score), play.mode, play.preset, play.range);
+        add("Final score " + FmtInt(play.score) + "   " + TierName(tier), kColGold, 1.2f);
+        if (play.mode == kHybrid) add(hybridTracking ? "TRACK IT" : "FLICK", kColWarn, 1.2f);
+        add("Stop watching: your airlabs_toggle key, or Stop in the AirLabs window", kColDim, 1.1f);
+        showBar = true;
+        barFrac = total > 0.0 ? static_cast<float>(at / total) : 0.f;
+        barCol = LinearColor(90.f, 170.f, 255.f, 255.f);
     }
 
     const int x = 40, w = 460;
@@ -3535,6 +3634,9 @@ void AirLabs::TabHelp()
     ImGui::BulletText("Hybrid: flick points plus tracking points for each rep.");
     ImGui::BulletText("Chase: like Track, 1000 points per second on the ball, for the whole minute.");
     ImGui::BulletText("Tiers: Bronze, Silver, Gold, Platinum, Diamond, Champion, Grand Champion, Supersonic Legend. Each preset and range has its own marks.");
+
+    Heading("Leaderboard");
+    ImGui::TextWrapped("The Leaderboard page shows everyone's best run on every preset and range (No air roll has its own boards). Turn on Post my runs there and your preset runs are posted under your Rocket League name: whenever a run beats your best on that board, it goes up with its replay. The server checks every run by playing it back and scoring it again before it's accepted. Press Watch next to any run to see it in the game: your car and the ball follow the replay exactly, and Stop (or your airlabs_toggle key) ends it. The same boards are on the web too.");
 
     Heading("Fair timing");
     ImGui::TextWrapped("Runs are timed in physics ticks (120 per second), so frame rate doesn't affect your score and pausing the game pauses the run. The readout (Assists tab) shows the measured tick rate.");

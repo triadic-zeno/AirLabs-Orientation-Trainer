@@ -1,0 +1,377 @@
+// The public leaderboard: recording runs, posting them, reading boards, and playing replays.
+//
+// A preset run is recorded tick by tick (Replay.h). When it ends, if you've turned on "Post my
+// runs" and it might be a new best, it goes to the leaderboard server with your Rocket League
+// name and account id. The server scores the replay again itself before it accepts it, and keeps
+// your best run's replay so anyone can watch it: Watch downloads it and the car and ball follow
+// it tick by tick.
+//
+// HTTP callbacks run on another thread. Everything they share with the game and the window is
+// behind lbMutex, and anything that touches the game goes through gameWrapper->Execute.
+#include "AirLabs.h"
+#include "bakkesmod/wrappers/http/HttpWrapper.h"
+#include "bakkesmod/wrappers/UniqueIDWrapper.h"
+#include "bakkesmod/wrappers/Engine/UnrealStringWrapper.h"
+
+#include <chrono>
+#include <fstream>
+#include <sstream>
+
+using namespace airlabs;
+
+namespace
+{
+    double Wall() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+
+    const char* PlatformName(OnlinePlatform p)
+    {
+        switch (p)
+        {
+        case OnlinePlatform_Steam: return "Steam";
+        case OnlinePlatform_Epic:  return "Epic";
+        case OnlinePlatform_PS4:   return "PlayStation";
+        case OnlinePlatform_Dingo: return "Xbox";
+        case OnlinePlatform_NNX:
+        case OnlinePlatform_OldNNX: return "Switch";
+        default: return "Unknown";
+        }
+    }
+
+    std::string Thousands(long long v)
+    {
+        std::string d = std::to_string(v < 0 ? -v : v), out;
+        for (std::size_t i = 0; i < d.size(); ++i) { if (i && (d.size() - i) % 3 == 0) out += ','; out += d[i]; }
+        return (v < 0 ? "-" : "") + out;
+    }
+}
+
+std::string AirLabs::BoardKey(int mode, int preset, int range, bool noRoll)
+{
+    return std::to_string(mode) + "-" + std::to_string(preset) + "-" + std::to_string(PresetUsesRange(mode, preset) ? range : 0) + "-" + (noRoll ? "1" : "0");
+}
+
+std::string AirLabs::LbUrl(const std::string& path) const
+{
+    std::string base = lbUrl ? *lbUrl : std::string();
+    while (!base.empty() && (base.back() == '/' || base.back() == ' ')) base.pop_back();
+    return base + path;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Recording
+// ---------------------------------------------------------------------------------------------
+
+void AirLabs::RecEvent(std::uint8_t type, float value)
+{
+    if (!recording) return;
+    ReplayEventRec e;
+    e.tick = static_cast<std::uint32_t>(recReplay.samples.size()); // the sample this tick will record
+    e.type = type;
+    e.value = value;
+    recReplay.events.push_back(e);
+}
+
+void AirLabs::RecordTick(const Rotator& rot)
+{
+    if (recReplay.samples.size() >= kReplayMaxSamples) return;
+    ReplaySample sm;
+    sm.ms = static_cast<std::uint16_t>(std::clamp<long>(std::lround((gameTime - runStart) * 1000.0), 0L, 65535L));
+    sm.pitch = static_cast<std::int16_t>(static_cast<std::uint16_t>(rot.Pitch & 0xFFFF));
+    sm.yaw = static_cast<std::int16_t>(static_cast<std::uint16_t>(rot.Yaw & 0xFFFF));
+    sm.roll = static_cast<std::int16_t>(static_cast<std::uint16_t>(rot.Roll & 0xFFFF));
+    const Vector d = Norm(Sub(targetLocation, pinLocation)); // what this tick was scored against
+    sm.dx = PackUnit(d.X); sm.dy = PackUnit(d.Y); sm.dz = PackUnit(d.Z);
+    recReplay.samples.push_back(sm);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Posting a run
+// ---------------------------------------------------------------------------------------------
+
+void AirLabs::LoadLeaderboardFile()
+{
+    std::ifstream f(DataDir() / "leaderboard.txt");
+    if (!f) return;
+    std::stringstream ss;
+    ss << f.rdbuf();
+    TextReply t = ParseTextReply(ss.str());
+    std::lock_guard<std::mutex> lock(lbMutex);
+    lbKey = t.Get("key");
+    lbPid = t.Get("pid");
+}
+
+void AirLabs::SaveLeaderboardFileLocked() const
+{
+    // This install's key: the server ties your Rocket League account to it on your first post.
+    std::error_code ec;
+    std::filesystem::create_directories(DataDir(), ec);
+    std::ofstream f(DataDir() / "leaderboard.txt", std::ios::trunc);
+    f << "key " << lbKey << "\npid " << lbPid << "\n";
+}
+
+void AirLabs::UploadRun(const Replay& r)
+{
+    const std::string board = BoardKey(r.mode, r.preset, r.range, (r.flags & kRfNoRoll) != 0);
+    std::string key;
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        auto it = lbServerBest.find(board);
+        if (it != lbServerBest.end() && r.score <= it->second)
+        {
+            lbStatus = "Leaderboard: your best on this preset is " + Thousands(it->second) + ", so this run wasn't posted.";
+            lbStatusGood = true;
+            lbStatusWall = Wall();
+            return;
+        }
+        key = lbKey;
+    }
+
+    // Who you are: your platform account id (the leaderboard's key for you) and your name.
+    UniqueIDWrapper uid = gameWrapper->GetUniqueID();
+    const OnlinePlatform plat = uid.GetPlatform();
+    std::string id = plat == OnlinePlatform_Epic ? uid.GetEpicAccountID() : std::to_string(uid.GetUID());
+    if (id.empty() || id == "0") id = uid.GetEpicAccountID();
+    if (id.empty() || id == "0")
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        lbStatus = "Not posted: couldn't read your Rocket League account.";
+        lbStatusGood = false;
+        lbStatusWall = Wall();
+        return;
+    }
+    std::string name = Utf8FromWide(gameWrapper->GetPlayerName().ToWideString());
+
+    CurlRequest req;
+    req.url = LbUrl("/api/runs?format=text");
+    req.verb = "POST";
+    req.body = "{\"player\":{\"platform\":" + JsonString(PlatformName(plat)) + ",\"id\":" + JsonString(id) + ",\"name\":" + JsonString(name) +
+               "},\"key\":" + JsonString(key) + ",\"replay\":\"" + Base64Encode(SerializeReplay(r)) + "\"}";
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        lbUploading = true;
+        lbStatus = "Posting to the leaderboard...";
+        lbStatusGood = true;
+        lbStatusWall = Wall();
+    }
+    cvarManager->log("[AirLabs] posting run to the leaderboard (" + board + ", " + std::to_string(r.score) + ")");
+    auto alive = lbAlive;
+    const int score = r.score;
+    HttpWrapper::SendCurlJsonRequest(req, [this, alive, board, score](int code, std::string result) {
+        if (!alive->load()) return;
+        TextReply t = ParseTextReply(result);
+        std::lock_guard<std::mutex> lock(lbMutex);
+        lbUploading = false;
+        const std::string newKey = t.Get("key"), pid = t.Get("pid");
+        bool save = false;
+        if (!newKey.empty() && newKey != lbKey) { lbKey = newKey; save = true; }
+        if (!pid.empty() && pid != lbPid) { lbPid = pid; save = true; }
+        if (save) SaveLeaderboardFileLocked();
+        if (code == 200 && t.Get("ok") == "1")
+        {
+            lbServerBest[board] = std::max(t.GetInt("score", score), lbServerBest.count(board) ? lbServerBest[board] : 0);
+            lbStatus = "Leaderboard: " + t.Get("message", "posted.");
+            lbStatusGood = true;
+            lbBoards[board].fetchedWall = 0.0; // show the new standings next time the page is open
+        }
+        else
+        {
+            std::string err = t.Get("error");
+            if (err.empty()) err = (code == 418 || code == 0) ? "couldn't reach the leaderboard" : "server error " + std::to_string(code);
+            lbStatus = "Not posted: " + err;
+            lbStatusGood = false;
+        }
+        lbStatusWall = Wall();
+    });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Reading a board
+// ---------------------------------------------------------------------------------------------
+
+void AirLabs::FetchBoard(const std::string& key, bool force)
+{
+    std::string pid;
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        LbBoard& b = lbBoards[key];
+        if (b.loading) return;
+        if (!force && b.fetchedWall > 0.0 && Wall() - b.fetchedWall < 60.0) return;
+        b.loading = true;
+        pid = lbPid;
+    }
+    CurlRequest req;
+    req.url = LbUrl("/api/boards/" + key + "?format=text&limit=100" + (pid.empty() ? std::string() : "&me=" + pid));
+    req.verb = "GET";
+    auto alive = lbAlive;
+    HttpWrapper::SendCurlRequest(req, [this, alive, key](int code, std::string result) {
+        if (!alive->load()) return;
+        TextReply t = ParseTextReply(result);
+        std::lock_guard<std::mutex> lock(lbMutex);
+        LbBoard& b = lbBoards[key];
+        b.loading = false;
+        b.fetchedWall = Wall();
+        if (code != 200 || t.Get("ok") != "1")
+        {
+            b.error = t.Get("error");
+            if (b.error.empty()) b.error = (code == 418 || code == 0) ? "Couldn't reach the leaderboard." : "Leaderboard error " + std::to_string(code) + ".";
+            return;
+        }
+        b.error.clear();
+        b.loaded = true;
+        b.title = t.Get("title");
+        b.total = t.GetInt("total");
+        b.rows.clear();
+        for (const auto& l : t.lines)
+        {
+            if (l.first != "row") continue;
+            std::vector<std::string> f = SplitTabs(l.second);
+            if (f.size() < 7) continue;
+            LbRow row;
+            row.pos = std::atoi(f[0].c_str()); row.pid = f[1]; row.name = f[2]; row.platform = f[3];
+            row.score = std::atoi(f[4].c_str()); row.date = f[5]; row.run = std::atoi(f[6].c_str());
+            b.rows.push_back(row);
+        }
+        b.mePos = b.meScore = b.meRun = 0;
+        const std::string me = t.Get("me");
+        if (!me.empty())
+        {
+            std::vector<std::string> f = SplitTabs(me);
+            if (f.size() >= 3)
+            {
+                b.mePos = std::atoi(f[0].c_str()); b.meScore = std::atoi(f[1].c_str()); b.meRun = std::atoi(f[2].c_str());
+                int& best = lbServerBest[key];
+                best = std::max(best, b.meScore);
+            }
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Watching a replay
+// ---------------------------------------------------------------------------------------------
+
+void AirLabs::WatchReplay(int runId)
+{
+    if (runId <= 0) return;
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        if (loadingRun != 0) return;
+        loadingRun = runId;
+        playError.clear();
+    }
+    CurlRequest req;
+    req.url = LbUrl("/api/replays/" + std::to_string(runId) + "?format=text");
+    req.verb = "GET";
+    auto alive = lbAlive;
+    HttpWrapper::SendCurlRequest(req, [this, alive, runId](int code, std::string result) {
+        if (!alive->load()) return;
+        TextReply t = ParseTextReply(result);
+        Replay rp;
+        std::string bytes, err;
+        bool ok = code == 200 && t.Get("ok") == "1" && Base64Decode(t.Get("replay"), bytes) && ParseReplay(bytes, rp, &err) && !rp.samples.empty();
+        {
+            std::lock_guard<std::mutex> lock(lbMutex);
+            loadingRun = 0;
+            if (!ok)
+            {
+                playError = t.Get("error");
+                if (playError.empty()) playError = !err.empty() ? err : (code == 418 || code == 0) ? "Couldn't reach the leaderboard." : "Couldn't load that replay.";
+                return;
+            }
+            playName = t.Get("name", "Player");
+            playTitle = t.Get("title");
+            playRun = runId;
+        }
+        gameWrapper->Execute([this, alive, rp](GameWrapper* gw) {
+            if (!alive->load()) return;
+            play = rp;
+            if (gw->IsInFreeplay())
+            {
+                ServerWrapper server = gw->GetGameEventAsServer();
+                if (!server.IsNull())
+                {
+                    CarWrapper car = server.GetGameCar();
+                    if (!car.IsNull()) { StartReplay(car); return; }
+                }
+            }
+            // Not in Freeplay yet: load the map Start would use, and play it once it's up.
+            pendingReplayRun = playRun;
+            replayOnLoadWall = Wall();
+            if (WantSpaceMap()) LoadSpaceMap();
+            else LoadStandardMap();
+        });
+    });
+}
+
+void AirLabs::StartReplay(CarWrapper car)
+{
+    if (play.samples.empty() || car.IsNull()) return;
+    if (state == RunState::Running) recording = false; // the run in progress is abandoned
+    showResults = false;
+    pinLocation = V(0.f, 0.f, kArenaCentreZ);
+    car.SetLocation(pinLocation);
+    car.SetVelocity(V(0.f, 0.f, 0.f));
+    car.SetAngularVelocity(V(0.f, 0.f, 0.f), false);
+    const ReplaySample& s0 = play.samples[0];
+    car.SetRotation(Rotator(s0.pitch, s0.yaw, s0.roll));
+    targetLocation = Add(pinLocation, Scale(Norm(V(UnpackUnit(s0.dx), UnpackUnit(s0.dy), UnpackUnit(s0.dz))), play.distance));
+    playTick = 0;
+    playEvent = 0;
+    playScore = 0.0;
+    playTracking = play.mode == kTrack || play.mode == kChase;
+    runAim = play.aim;
+    hasTarget = true;
+    locking = false;
+    hybridTracking = false;
+    havePrevBasis = false;
+    lastFlash = Flash::None;
+    spaceStopped = false;
+    state = RunState::Replay;
+    cvarManager->log("[AirLabs] watching replay " + std::to_string(playRun));
+}
+
+void AirLabs::ReplayTick(CarWrapper car)
+{
+    if (playTick >= play.samples.size()) { EndReplay(); return; }
+    const ReplaySample& sm = play.samples[playTick];
+    car.SetRotation(Rotator(sm.pitch, sm.yaw, sm.roll));
+    car.SetAngularVelocity(V(0.f, 0.f, 0.f), false);
+    const Vector dir = Norm(V(UnpackUnit(sm.dx), UnpackUnit(sm.dy), UnpackUnit(sm.dz)));
+    targetLocation = Add(pinLocation, Scale(dir, play.distance));
+    const Basis b = BasisFromRotator(sm.pitch, sm.yaw, sm.roll);
+    aimErrorDeg = AngleDeg(AimVec(b, play.aim), dir);
+    locking = aimErrorDeg <= play.targetDeg;
+
+    // The score as it was at this point of the run (tracking ticks, then this tick's events).
+    const double dt = (play.flags & kRfTickTiming) || playTick == 0
+                          ? 1.0 / 120.0 : std::max(0, static_cast<int>(sm.ms) - static_cast<int>(play.samples[playTick - 1].ms)) / 1000.0;
+    if (playTracking) playScore += 1000.0 * TrackCredit(aimErrorDeg, play.targetDeg) * dt;
+    while (playEvent < play.events.size() && play.events[playEvent].tick <= playTick)
+    {
+        const ReplayEventRec& e = play.events[playEvent++];
+        switch (e.type)
+        {
+        case kEvHit: playScore += e.value; lastFlash = Flash::Hit; break;
+        case kEvMiss: playScore = std::max(0.0, playScore - e.value); lastFlash = Flash::Miss; break;
+        case kEvHybridStart: playTracking = true; hybridTracking = true; break;
+        case kEvHybridEnd: playTracking = false; hybridTracking = false; break;
+        case kEvChaseCatch: lastFlash = Flash::Hit; break;
+        case kEvChaseMiss: lastFlash = Flash::Miss; break;
+        default: break;
+        }
+    }
+    ++playTick;
+}
+
+void AirLabs::EndReplay()
+{
+    state = RunState::Idle;
+    hasTarget = false;
+    hybridTracking = false;
+    locking = false;
+    spaceStopped = true; // on the space map the car stays held where it is
+    std::lock_guard<std::mutex> lock(lbMutex);
+    lbStatus = "Replay finished: " + playName + ", " + Thousands(play.score) + ".";
+    lbStatusGood = true;
+    lbStatusWall = Wall();
+}

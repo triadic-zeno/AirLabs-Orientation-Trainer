@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "TrainerCore.h"
+#include "Replay.h"
 
 struct ImFont;
 struct ImDrawList;
@@ -61,7 +62,7 @@ public:
 #endif
 
 private:
-    enum class RunState { Idle, Ready, Running, Results };
+    enum class RunState { Idle, Ready, Running, Results, Replay }; // Replay: playing back a leaderboard run
     enum class GuideState { Go, Brake, Hold };
     enum class Flash { None, Hit, Miss };
 
@@ -154,6 +155,8 @@ private:
     std::shared_ptr<int> mapPref;   // airlabs_map: where Start takes you. 0 = space map (default), 1 = standard field
     std::shared_ptr<float> laserLength, laserWidth, guideAccel;
     std::shared_ptr<int> guideMode;
+    std::shared_ptr<bool> lbPost;          // airlabs_lb_post: post your preset runs to the public leaderboard
+    std::shared_ptr<std::string> lbUrl;    // airlabs_lb_url: the leaderboard server
 
     // ---- run state ----
     RunState state = RunState::Idle;
@@ -176,6 +179,55 @@ private:
     int rateTicks = 0;
     float measuredRate = 0.f;
     bool tickTiming = false;
+
+    // ---- leaderboard (see Replay.h and server/) ----
+    // Recording: every tick of a preset run, uploaded at the end if it's a new best.
+    airlabs::Replay recReplay;
+    bool recording = false;
+    int recClockTicks = 0;          // ticks timed by the PC clock instead of the tick count
+    void RecEvent(std::uint8_t type, float value = 0.f);
+    void RecordTick(const Rotator& rot);
+    void UploadRun(const airlabs::Replay& r);
+    // State shared with the HTTP callbacks (which run on another thread): lbMutex guards it.
+    struct LbRow { int pos = 0; std::string pid, name, platform; int score = 0; std::string date; int run = 0; };
+    struct LbBoard
+    {
+        std::string title, error;
+        int total = 0, mePos = 0, meScore = 0, meRun = 0;
+        std::vector<LbRow> rows;
+        bool loading = false, loaded = false;
+        double fetchedWall = 0.0;
+    };
+    std::mutex lbMutex;
+    std::shared_ptr<std::atomic<bool>> lbAlive = std::make_shared<std::atomic<bool>>(true); // false once unloaded: late callbacks do nothing
+    std::map<std::string, LbBoard> lbBoards;    // by board key, "mode-preset-range-noroll"
+    std::map<std::string, int> lbServerBest;    // your best on each board, as the server last said
+    std::string lbKey, lbPid;                   // this install's key, and your public id (data/AirLabs/leaderboard.txt)
+    std::string lbStatus;                       // what happened to the last upload
+    bool lbStatusGood = true, lbUploading = false;
+    double lbStatusWall = 0.0;
+    std::string lbName;                         // your Rocket League name (read on the game thread)
+    // Leaderboard page selection (render thread only); lbMode -1 = start from the preset you're playing.
+    int lbMode = -1, lbPreset = 0, lbRange = airlabs::kMedium;
+    bool lbNoRoll = false;
+    double lbNameAsked = -100.0;
+    void LoadLeaderboardFile();
+    void SaveLeaderboardFileLocked() const;     // caller holds lbMutex
+    std::string LbUrl(const std::string& path) const;
+    static std::string BoardKey(int mode, int preset, int range, bool noRoll);
+    void FetchBoard(const std::string& key, bool force = false);
+    // Playback of a leaderboard run: the car and ball follow the replay tick by tick.
+    airlabs::Replay play;
+    std::string playName, playTitle, playError;
+    int playRun = 0, loadingRun = 0, pendingReplayRun = 0;
+    std::size_t playTick = 0, playEvent = 0;
+    double playScore = 0.0;
+    bool playTracking = false;
+    double replayOnLoadWall = 0.0;
+    void WatchReplay(int runId);
+    void StartReplay(CarWrapper car);
+    void ReplayTick(CarWrapper car);
+    void EndReplay();
 
     // flick
     double spawnTime = 0.0, nextSpawnAt = 0.0, lockStart = 0.0, firstReach = 0.0;
@@ -381,6 +433,7 @@ private:
     void WinStats();
     void WinAssists();
     void WinHelp();
+    void WinLeaderboard();
     void PlayFlickSettings(const DrillSettings& s, bool hybridPart);
     void PlayTrackSettings(const DrillSettings& s, bool hybridPart);
     void PlayDirections(const DrillSettings& s);

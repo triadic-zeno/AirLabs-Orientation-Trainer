@@ -1,0 +1,15 @@
+# AirLabs leaderboard (Cloudflare Worker + D1). Deployed by .github/workflows/deploy-leaderboard.yml,
+# which finds (or creates) the D1 database and fills in database_id before deploying.
+name = "leaderboard"
+main = "src/index.js"
+compatibility_date = "2025-06-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "airlabs-leaderboard"
+database_id = "__D1_DATABASE_ID__"
+migrations_dir = "migrations"
+
+[observability]
+enabled = true

@@ -6,3 +6,6 @@ x64/
 *.aps
 submission/
 __pycache__/
+node_modules/
+server/local*.db
+.wrangler/

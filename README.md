@@ -453,6 +453,33 @@ one per line) and `direction_stats_v2.txt` (the grid).
 Runs saved by 1.2.0 are carried over. Old Insane scores are kept in History but don't
 count as records, because Insane used to allow 180 deg direction changes.
 
+## Leaderboard
+
+The **Leaderboard** page shows everyone's best run on every preset and range, with No air roll
+on boards of its own. The same boards are on the web at
+<https://leaderboard.airlabs.workers.dev>.
+
+- **Post my runs** (off until you turn it on) posts your preset runs under your Rocket League
+  name. Whenever a run beats your best on that board, it goes up with its replay. Custom runs,
+  saved presets and runs with a skipped target never post.
+- **Watch** plays any run on the board in the game: your car and the ball follow the replay
+  tick by tick, with the score building as it did in the run. Stop (or your `airlabs_toggle`
+  key) ends it. Outside Freeplay, Watch loads the map first.
+- **Every run is checked.** The plugin records the whole run, one sample per physics tick: the
+  car's rotation and where the ball was. That's everything a score depends on, so the server
+  plays the run back through the same rules as the plugin (the 0.2 s hold, the 5 s limit,
+  points per flick, tracking credit per tick) and scores it itself. It also checks the run
+  against the preset (ball distance, ball speed, turn sizes, dash lengths) and against Rocket
+  League's physics (no car spins faster than 5.5 rad/s, and No air roll runs don't roll), and
+  turns away scores past the human limit (the Pro mark). A run that doesn't add up isn't posted,
+  and the plugin says why.
+- **What's stored:** your Rocket League name, platform, your platform account id (used only to
+  tell players apart; never shown), and your best run per board with its replay. The first time
+  you post, the server gives this install a key (`data/AirLabs/leaderboard.txt`), so nobody else
+  can post as you. Turn posting off any time with **Stop posting**.
+
+The server is a Cloudflare Worker with a D1 database, in `server/` (see `server/README.md`).
+
 ## Assists page
 
 None of these affect whether a run counts.
@@ -492,6 +519,9 @@ PC clock if it ever looks wrong; the Readout shows which is in use.
 | `airlabs_aim_toggle` | Nose/wheels in Flick (makes the run Custom) |
 | `airlabs_reset_session` | Reset this session's run counter |
 | `airlabs_reset_directions` | Clear the direction grid |
+| `airlabs_lb_post 1` / `airlabs_lb_post 0` | Post your preset runs to the leaderboard / stop |
+| `airlabs_watch <run>` | Watch a leaderboard run's replay (the number is the run's id on the server) |
+| `airlabs_lb_url <url>` | The leaderboard server (only change this for a server of your own) |
 
 ## Tuning presets
 
