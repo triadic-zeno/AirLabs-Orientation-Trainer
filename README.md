@@ -459,11 +459,11 @@ The **Leaderboard** page shows everyone's best run on every preset and range, wi
 on boards of its own. The same boards are on the web at
 <https://leaderboard.airlabs.workers.dev>.
 
-- **Post my runs** (off until you turn it on) posts your preset runs under your Rocket League
-  name. Whenever a run beats your best on that board, it goes up with its replay. Custom runs,
-  saved presets and runs with a skipped target never post. While it's off, your best run on each
-  board is kept (in `data/AirLabs/pending`), and those go up, one every 25 seconds or so, once you
-  turn it on.
+- **Post my runs** is on by default: your preset runs post under your Rocket League name.
+  Whenever a run beats your best on that board, it goes up with its replay. Custom runs, saved
+  presets and runs with a skipped target never post. Turn it off with **Stop posting** on the
+  Leaderboard page (or `airlabs_lb_post 0`). While it's off, your best run on each board is kept
+  (in `data/AirLabs/pending`), and those go up, one every 25 seconds or so, if you turn it back on.
 - **No internet when a run ends?** It waits in `data/AirLabs/pending` and AirLabs tries again by
   itself (and soon after the game starts), or straight away with **Retry now** on the
   Leaderboard page. The Leaderboard page shows how many runs are waiting.

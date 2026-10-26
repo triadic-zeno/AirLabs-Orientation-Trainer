@@ -453,7 +453,7 @@ void AirLabs::RegisterCvars()
     mapPref = mkI(0);
     hudGrid = mkB(false); blockJumpBoost = mkB(true);
     laserLength = mkF(6000.f); laserWidth = mkF(3.f); guideAccel = mkF(450.f); guideMode = mkI(0);
-    lbPost = mkB(false); lbUrl = std::make_shared<std::string>(kLeaderboardUrl);
+    lbPost = mkB(true); lbUrl = std::make_shared<std::string>(kLeaderboardUrl);
 
     reg("airlabs_mode", "0", "0 = Flick, 1 = Track, 2 = Hybrid, 3 = Chase", 0.f, static_cast<float>(kModeCount - 1)).bindTo(mode);
     reg("airlabs_preset_flick", "4", "Flick preset (last = Custom)", 0.f, maxIdx(kFlick)).bindTo(presetFlick);
@@ -506,7 +506,7 @@ void AirLabs::RegisterCvars()
     reg("airlabs_block_jump", "1", "Custom runs: block jump and boost while pinned", 0.f, 1.f).bindTo(blockJumpBoost);
 
     // Leaderboard
-    reg("airlabs_lb_post", "0", "Post your preset runs to the public AirLabs leaderboard (your best per preset, with its replay, under your Rocket League name)", 0.f, 1.f).bindTo(lbPost);
+    reg("airlabs_lb_post", "1", "Post your preset runs to the public AirLabs leaderboard (your best per preset, with its replay, under your Rocket League name). On by default", 0.f, 1.f).bindTo(lbPost);
     // Not saved to the config: a new version's server address always applies.
     cvarManager->registerCvar("airlabs_lb_url", kLeaderboardUrl, "AirLabs leaderboard server", true, false, 0.f, false, 0.f, false).bindTo(lbUrl);
 }
@@ -3639,7 +3639,7 @@ void AirLabs::TabHelp()
     ImGui::BulletText("Tiers: Bronze, Silver, Gold, Platinum, Diamond, Champion, Grand Champion, Supersonic Legend. Each preset and range has its own marks.");
 
     Heading("Leaderboard");
-    ImGui::TextWrapped("The Leaderboard page shows everyone's best run on every preset and range (No air roll has its own boards). Turn on Post my runs there and your preset runs are posted under your Rocket League name: whenever a run beats your best on that board, it goes up with its replay. The server checks every run by playing it back and scoring it again before it's accepted. Press Watch next to any run to see it in the game: your car and the ball follow the replay exactly, and Stop (or your airlabs_toggle key) ends it. The same boards are on the web too.");
+    ImGui::TextWrapped("The Leaderboard page shows everyone's best run on every preset and range (No air roll has its own boards). Your preset runs post there under your Rocket League name: whenever a run beats your best on that board, it goes up with its replay. Don't want that? Press Stop posting on the Leaderboard page. Press Watch next to any run to see it in the game: your car and the ball follow the replay exactly, and Stop (or your airlabs_toggle key) ends it. The same boards are on the web too.");
 
     Heading("Fair timing");
     ImGui::TextWrapped("Runs are timed in physics ticks (120 per second), so frame rate doesn't affect your score and pausing the game pauses the run. The readout (Assists tab) shows the measured tick rate.");

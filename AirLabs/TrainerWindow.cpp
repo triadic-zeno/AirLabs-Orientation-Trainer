@@ -1233,7 +1233,7 @@ void AirLabs::WinLeaderboard()
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kDim));
         ImGui::TextWrapped("Your best run on each preset goes on this public leaderboard under your Rocket League name%s, with its replay so anyone can watch it. "
                            "Only preset runs count, and the server checks every run by playing it back before it's accepted. "
-                           "Until you turn this on, your best run on each board is kept here, and it goes up when you do.",
+                           "While this is off, your best run on each board is kept here, and it goes up when you turn it back on.",
                            name.empty() ? "" : (" (" + name + ")").c_str());
         ImGui::PopStyleColor();
         ImGui::Dummy(ImVec2(0, 2));
