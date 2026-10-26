@@ -13,9 +13,11 @@
 #include "bakkesmod/wrappers/UniqueIDWrapper.h"
 #include "bakkesmod/wrappers/Engine/UnrealStringWrapper.h"
 
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <sstream>
+#include <vector>
 
 using namespace airlabs;
 
@@ -90,6 +92,10 @@ void AirLabs::RecordTick(const Rotator& rot)
 
 void AirLabs::LoadLeaderboardFile()
 {
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        CountPendingLocked();
+    }
     std::ifstream f(DataDir() / "leaderboard.txt");
     if (!f) return;
     std::stringstream ss;
@@ -112,7 +118,6 @@ void AirLabs::SaveLeaderboardFileLocked() const
 void AirLabs::UploadRun(const Replay& r)
 {
     const std::string board = BoardKey(r.mode, r.preset, r.range, (r.flags & kRfNoRoll) != 0);
-    std::string key;
     {
         std::lock_guard<std::mutex> lock(lbMutex);
         auto it = lbServerBest.find(board);
@@ -123,7 +128,6 @@ void AirLabs::UploadRun(const Replay& r)
             lbStatusWall = Wall();
             return;
         }
-        key = lbKey;
     }
 
     // Who you are: your platform account id (the leaderboard's key for you) and your name.
@@ -139,24 +143,68 @@ void AirLabs::UploadRun(const Replay& r)
         lbStatusWall = Wall();
         return;
     }
-    std::string name = Utf8FromWide(gameWrapper->GetPlayerName().ToWideString());
+    PendingRun p;
+    p.board = board;
+    p.platform = PlatformName(plat);
+    p.id = id;
+    p.name = Utf8FromWide(gameWrapper->GetPlayerName().ToWideString());
+    p.score = r.score;
+    p.replayB64 = Base64Encode(SerializeReplay(r));
+    cvarManager->log("[AirLabs] posting run to the leaderboard (" + board + ", " + std::to_string(r.score) + ")");
+    SendRun(std::move(p));
+}
 
+std::filesystem::path AirLabs::PendingDir() const { return DataDir() / "pending"; }
+
+void AirLabs::CountPendingLocked()
+{
+    int n = 0;
+    std::error_code ec;
+    for (std::filesystem::directory_iterator it(PendingDir(), ec), end; !ec && it != end; it.increment(ec))
+        if (it->path().extension() == ".run") ++n;
+    lbPendingCount = n;
+}
+
+void AirLabs::SavePendingLocked(PendingRun& p)
+{
+    std::error_code ec;
+    std::filesystem::create_directories(PendingDir(), ec);
+    // Oldest first by name: the time it failed, then the board.
+    const auto stamp = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    p.file = PendingDir() / (std::to_string(stamp) + "_" + p.board + ".run");
+    auto line = [](const std::string& v) { std::string o = v; for (char& c : o) if (c == '\n' || c == '\r') c = ' '; return o; };
+    std::ofstream f(p.file, std::ios::trunc);
+    f << "board " << p.board << "\nscore " << p.score << "\nplatform " << line(p.platform) << "\nid " << line(p.id)
+      << "\nname " << line(p.name) << "\nreplay " << p.replayB64 << "\n";
+    f.close();
+    // Keep at most 20 waiting: drop the oldest beyond that.
+    std::vector<std::filesystem::path> files;
+    for (std::filesystem::directory_iterator it(PendingDir(), ec), end; !ec && it != end; it.increment(ec))
+        if (it->path().extension() == ".run") files.push_back(it->path());
+    std::sort(files.begin(), files.end());
+    for (std::size_t i = 0; i + 20 < files.size(); ++i) std::filesystem::remove(files[i], ec);
+    CountPendingLocked();
+}
+
+// Posts one run. A run that can't get through (no internet, server down, too soon after the
+// last post) waits in pending/ for the next try; one the server answers for good (posted, not a
+// new best, or refused) leaves the queue.
+void AirLabs::SendRun(PendingRun p)
+{
+    std::string key;
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        key = lbKey; // the current key, so a run queued before your first post uses the key that post got
+        lbUploading = true;
+        if (p.file.empty()) { lbStatus = "Posting to the leaderboard..."; lbStatusGood = true; lbStatusWall = Wall(); }
+    }
     CurlRequest req;
     req.url = LbUrl("/api/runs?format=text");
     req.verb = "POST";
-    req.body = "{\"player\":{\"platform\":" + JsonString(PlatformName(plat)) + ",\"id\":" + JsonString(id) + ",\"name\":" + JsonString(name) +
-               "},\"key\":" + JsonString(key) + ",\"replay\":\"" + Base64Encode(SerializeReplay(r)) + "\"}";
-    {
-        std::lock_guard<std::mutex> lock(lbMutex);
-        lbUploading = true;
-        lbStatus = "Posting to the leaderboard...";
-        lbStatusGood = true;
-        lbStatusWall = Wall();
-    }
-    cvarManager->log("[AirLabs] posting run to the leaderboard (" + board + ", " + std::to_string(r.score) + ")");
+    req.body = "{\"player\":{\"platform\":" + JsonString(p.platform) + ",\"id\":" + JsonString(p.id) + ",\"name\":" + JsonString(p.name) +
+               "},\"key\":" + JsonString(key) + ",\"replay\":\"" + p.replayB64 + "\"}";
     auto alive = lbAlive;
-    const int score = r.score;
-    HttpWrapper::SendCurlJsonRequest(req, [this, alive, board, score](int code, std::string result) {
+    HttpWrapper::SendCurlJsonRequest(req, [this, alive, p](int code, std::string result) mutable {
         if (!alive->load()) return;
         TextReply t = ParseTextReply(result);
         std::lock_guard<std::mutex> lock(lbMutex);
@@ -166,22 +214,91 @@ void AirLabs::UploadRun(const Replay& r)
         if (!newKey.empty() && newKey != lbKey) { lbKey = newKey; save = true; }
         if (!pid.empty() && pid != lbPid) { lbPid = pid; save = true; }
         if (save) SaveLeaderboardFileLocked();
+        const bool retried = !p.file.empty();
+        const bool transient = code == 418 || code == 0 || code == 429 || code >= 500;
+        if (transient)
+        {
+            const bool wasQueued = retried;
+            if (!wasQueued) SavePendingLocked(p);
+            if (!wasQueued || lbStatus.rfind("Waiting to post", 0) == 0)
+            {
+                lbStatus = code == 429 ? "Waiting to post: the leaderboard asked to slow down. AirLabs tries again in a minute."
+                                       : "Waiting to post: couldn't reach the leaderboard. AirLabs keeps trying every minute.";
+                lbStatusGood = true;
+                lbStatusWall = Wall();
+            }
+            return;
+        }
+        if (retried)
+        {
+            std::error_code ec;
+            std::filesystem::remove(p.file, ec);
+            CountPendingLocked();
+        }
         if (code == 200 && t.Get("ok") == "1")
         {
-            lbServerBest[board] = std::max(t.GetInt("score", score), lbServerBest.count(board) ? lbServerBest[board] : 0);
-            lbStatus = "Leaderboard: " + t.Get("message", "posted.");
+            lbServerBest[p.board] = std::max(t.GetInt("score", p.score), lbServerBest.count(p.board) ? lbServerBest[p.board] : 0);
+            lbStatus = std::string(retried ? "Leaderboard (a run from earlier): " : "Leaderboard: ") + t.Get("message", "posted.");
             lbStatusGood = true;
-            lbBoards[board].fetchedWall = 0.0; // show the new standings next time the page is open
+            lbBoards[p.board].fetchedWall = 0.0; // show the new standings next time the page is open
         }
         else
         {
             std::string err = t.Get("error");
-            if (err.empty()) err = (code == 418 || code == 0) ? "couldn't reach the leaderboard" : "server error " + std::to_string(code);
-            lbStatus = "Not posted: " + err;
+            if (err.empty()) err = "server error " + std::to_string(code);
+            lbStatus = std::string(retried ? "A run from earlier wasn't posted: " : "Not posted: ") + err;
             lbStatusGood = false;
         }
         lbStatusWall = Wall();
     });
+}
+
+void AirLabs::RetryPending()
+{
+    if (!lbPost || !*lbPost) return; // posting is off: they wait until it's back on
+    std::filesystem::path file;
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        if (lbUploading) return;
+        CountPendingLocked();
+        if (lbPendingCount == 0) return;
+        std::vector<std::filesystem::path> files;
+        std::error_code ec;
+        for (std::filesystem::directory_iterator it(PendingDir(), ec), end; !ec && it != end; it.increment(ec))
+            if (it->path().extension() == ".run") files.push_back(it->path());
+        if (files.empty()) return;
+        file = *std::min_element(files.begin(), files.end());
+    }
+    std::ifstream f(file);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    f.close();
+    TextReply t = ParseTextReply(ss.str());
+    PendingRun p;
+    p.board = t.Get("board"); p.score = t.GetInt("score"); p.platform = t.Get("platform"); p.id = t.Get("id"); p.name = t.Get("name");
+    p.replayB64 = t.Get("replay");
+    p.file = file;
+    if (p.board.empty() || p.id.empty() || p.replayB64.empty())
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        std::error_code ec;
+        std::filesystem::remove(file, ec); // unreadable: drop it
+        CountPendingLocked();
+        return;
+    }
+    cvarManager->log("[AirLabs] posting a run from earlier (" + p.board + ", " + std::to_string(p.score) + ")");
+    SendRun(std::move(p));
+}
+
+// Every minute (on the game thread): post the oldest waiting run, if there is one.
+void AirLabs::SchedulePendingRetry(float seconds)
+{
+    auto alive = lbAlive;
+    gameWrapper->SetTimeout([this, alive](GameWrapper*) {
+        if (!alive->load()) return;
+        RetryPending();
+        SchedulePendingRetry(60.f);
+    }, seconds);
 }
 
 // ---------------------------------------------------------------------------------------------

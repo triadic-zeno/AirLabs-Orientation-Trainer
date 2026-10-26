@@ -212,6 +212,22 @@ private:
     bool lbNoRoll = false;
     double lbNameAsked = -100.0;
     void LoadLeaderboardFile();
+    // Runs that couldn't be posted (no internet, server down) wait in data/AirLabs/pending and
+    // are retried every minute, or straight away with Retry now.
+    struct PendingRun
+    {
+        std::string board, platform, id, name, replayB64;
+        int score = 0;
+        std::filesystem::path file; // set once it's saved in pending/
+    };
+    int lbPendingCount = 0;                     // guarded by lbMutex
+    bool lbRetryScheduled = false;
+    std::filesystem::path PendingDir() const;
+    void SendRun(PendingRun p);
+    void SavePendingLocked(PendingRun& p);      // caller holds lbMutex
+    void CountPendingLocked();                  // caller holds lbMutex
+    void RetryPending();                        // posts the oldest waiting run (if posting is on and nothing is in flight)
+    void SchedulePendingRetry(float seconds);
     void SaveLeaderboardFileLocked() const;     // caller holds lbMutex
     std::string LbUrl(const std::string& path) const;
     static std::string BoardKey(int mode, int preset, int range, bool noRoll);

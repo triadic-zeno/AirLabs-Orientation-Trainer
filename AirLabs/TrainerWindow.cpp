@@ -1179,13 +1179,14 @@ void AirLabs::WinLeaderboard()
     LbBoard board;
     std::string status, pid, name, watchName, playErr;
     bool statusGood = true, uploading = false;
-    int loading = 0;
+    int loading = 0, pending = 0;
     {
         std::lock_guard<std::mutex> lock(lbMutex);
         board = lbBoards[key];
         status = wall - lbStatusWall < 600.0 ? lbStatus : std::string();
         statusGood = lbStatusGood;
         uploading = lbUploading;
+        pending = lbPendingCount;
         pid = lbPid;
         name = lbName;
         loading = loadingRun;
@@ -1249,6 +1250,23 @@ void AirLabs::WinLeaderboard()
     {
         FontScope f(small);
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(statusGood ? kDim : kWarn), "%s", uploading ? "Posting your run..." : status.c_str());
+    }
+    if (pending > 0)
+    {
+        // Runs that couldn't be posted (no internet): they retry by themselves every minute.
+        FontScope f(small);
+        Dot(kWarn);
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kWarn), "%s", (pending == 1 ? std::string("1 run is waiting to post")
+                                                                                       : std::to_string(pending) + " runs are waiting to post").c_str());
+        ImGui::SameLine(0, 10);
+        if (posting)
+        {
+            ImGui::TextDisabled("(tries again every minute)");
+            ImGui::SameLine(0, 10);
+            if (LinkButton("##lbretry", uploading ? "Posting..." : "Retry now", small, kAccentHi) && !uploading)
+                gameWrapper->Execute([this](GameWrapper*) { RetryPending(); });
+        }
+        else ImGui::TextDisabled("Turn on Post my runs to send %s.", pending == 1 ? "it" : "them");
     }
     if (!playErr.empty())
     {

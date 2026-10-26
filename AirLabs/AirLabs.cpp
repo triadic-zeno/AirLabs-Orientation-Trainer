@@ -397,6 +397,7 @@ void AirLabs::onLoad()
     LoadRecords();
     LoadSavedPresets();
     LoadLeaderboardFile();
+    SchedulePendingRetry(15.f); // runs left over from a session without internet go up soon after loading
     {
         std::error_code ec;
         haveSpaceMap = std::filesystem::exists(SpaceMapPath(), ec);
