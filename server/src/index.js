@@ -15,7 +15,7 @@ import { verifyReplay } from './verify.js';
 import { PAGE } from './page.js';
 
 const MIN_VERSION = [2, 6, 0];
-const UPLOAD_GAP_SEC = 45;     // a run takes 60 s, so a real player can't post faster than this
+const UPLOAD_GAP_SEC = 20;     // runs waiting from earlier go up one at a time; real runs take 60 s
 const SIGNUPS_PER_DAY = 20;    // new players per network address per day (shared addresses are common)
 const MAX_BODY = 400 * 1024;
 

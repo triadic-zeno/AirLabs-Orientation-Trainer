@@ -1232,11 +1232,16 @@ void AirLabs::WinLeaderboard()
         }
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kDim));
         ImGui::TextWrapped("Your best run on each preset goes on this public leaderboard under your Rocket League name%s, with its replay so anyone can watch it. "
-                           "Only preset runs count, and the server checks every run by playing it back before it's accepted.",
+                           "Only preset runs count, and the server checks every run by playing it back before it's accepted. "
+                           "Until you turn this on, your best run on each board is kept here, and it goes up when you do.",
                            name.empty() ? "" : (" (" + name + ")").c_str());
         ImGui::PopStyleColor();
         ImGui::Dummy(ImVec2(0, 2));
-        if (Chip("##lbjoin", "Post my runs", true, bold, 36.f)) SetCvarI("airlabs_lb_post", 1);
+        if (Chip("##lbjoin", "Post my runs", true, bold, 36.f))
+        {
+            SetCvarI("airlabs_lb_post", 1);
+            gameWrapper->Execute([this](GameWrapper*) { RetryPending(); }); // send what's waiting straight away
+        }
         c.End();
     }
     else
@@ -1261,7 +1266,7 @@ void AirLabs::WinLeaderboard()
         ImGui::SameLine(0, 10);
         if (posting)
         {
-            ImGui::TextDisabled("(tries again every minute)");
+            ImGui::TextDisabled("(they go up one at a time, by themselves)");
             ImGui::SameLine(0, 10);
             if (LinkButton("##lbretry", uploading ? "Posting..." : "Retry now", small, kAccentHi) && !uploading)
                 gameWrapper->Execute([this](GameWrapper*) { RetryPending(); });

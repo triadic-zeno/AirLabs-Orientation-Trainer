@@ -985,7 +985,8 @@ void AirLabs::EndRun(CarWrapper car, const Basis& b, const DrillSettings& s)
         rp.score = r.score;
         rp.targets = static_cast<std::uint16_t>(r.targets); rp.misses = static_cast<std::uint16_t>(r.misses); rp.hybReps = static_cast<std::uint16_t>(r.hybReps);
         rp.version = kVersion;
-        if (r.counted && !s.custom && s.userPreset == 0 && *lbPost) UploadRun(rp);
+        // With posting off, your best on each board is kept and goes up once you turn it on.
+        if (r.counted && !s.custom && s.userPreset == 0) UploadRun(rp, *lbPost);
     }
 
     // Reset the car and the ball for the next round, with the results kept on screen until

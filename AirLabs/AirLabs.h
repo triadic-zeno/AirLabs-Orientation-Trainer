@@ -187,7 +187,7 @@ private:
     int recClockTicks = 0;          // ticks timed by the PC clock instead of the tick count
     void RecEvent(std::uint8_t type, float value = 0.f);
     void RecordTick(const Rotator& rot);
-    void UploadRun(const airlabs::Replay& r);
+    void UploadRun(const airlabs::Replay& r, bool post); // post now, or (posting off) keep it to post once it's turned on
     // State shared with the HTTP callbacks (which run on another thread): lbMutex guards it.
     struct LbRow { int pos = 0; std::string pid, name, platform; int score = 0; std::string date; int run = 0; };
     struct LbBoard
@@ -224,7 +224,7 @@ private:
     bool lbRetryScheduled = false;
     std::filesystem::path PendingDir() const;
     void SendRun(PendingRun p);
-    void SavePendingLocked(PendingRun& p);      // caller holds lbMutex
+    bool SavePendingLocked(PendingRun& p);      // caller holds lbMutex; false if a better run on that board is already waiting
     void CountPendingLocked();                  // caller holds lbMutex
     void RetryPending();                        // posts the oldest waiting run (if posting is on and nothing is in flight)
     void SchedulePendingRetry(float seconds);

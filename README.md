@@ -461,9 +461,11 @@ on boards of its own. The same boards are on the web at
 
 - **Post my runs** (off until you turn it on) posts your preset runs under your Rocket League
   name. Whenever a run beats your best on that board, it goes up with its replay. Custom runs,
-  saved presets and runs with a skipped target never post.
-- **No internet when a run ends?** It waits in `data/AirLabs/pending` and AirLabs tries again
-  every minute (and soon after the game starts), or straight away with **Retry now** on the
+  saved presets and runs with a skipped target never post. While it's off, your best run on each
+  board is kept (in `data/AirLabs/pending`), and those go up, one every 25 seconds or so, once you
+  turn it on.
+- **No internet when a run ends?** It waits in `data/AirLabs/pending` and AirLabs tries again by
+  itself (and soon after the game starts), or straight away with **Retry now** on the
   Leaderboard page. The Leaderboard page shows how many runs are waiting.
 - **Watch** plays any run on the board in the game: your car and the ball follow the replay
   tick by tick, with the score building as it did in the run. Stop (or your `airlabs_toggle`
