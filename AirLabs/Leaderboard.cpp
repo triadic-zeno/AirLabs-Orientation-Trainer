@@ -248,8 +248,29 @@ void AirLabs::SendRun(PendingRun p)
             if (err.empty()) err = "server error " + std::to_string(code);
             lbStatus = std::string(retried ? "A run from earlier wasn't posted: " : "Not posted: ") + err;
             lbStatusGood = false;
+            if (code == 422)
+            {
+                // Turned away by the checks: keep the replay (the last 5) so it can be looked at.
+                std::error_code ec;
+                const std::filesystem::path dir = DataDir() / "rejected";
+                std::filesystem::create_directories(dir, ec);
+                std::string bytes;
+                if (Base64Decode(p.replayB64, bytes))
+                {
+                    const auto stamp = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                    std::ofstream(dir / (std::to_string(stamp) + "_" + p.board + ".alr"), std::ios::binary | std::ios::trunc) << bytes;
+                    std::ofstream(dir / (std::to_string(stamp) + "_" + p.board + ".txt"), std::ios::trunc) << err << "\n";
+                }
+                std::vector<std::filesystem::path> old;
+                for (std::filesystem::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) old.push_back(it->path());
+                std::sort(old.begin(), old.end());
+                for (std::size_t i = 0; i + 10 < old.size(); ++i) std::filesystem::remove(old[i], ec);
+            }
         }
         lbStatusWall = Wall();
+        // Into the BakkesMod console (and bakkesmod.log) too, from the game thread.
+        const std::string msg = "[AirLabs] " + lbStatus;
+        gameWrapper->Execute([this, alive, msg](GameWrapper*) { if (alive->load()) cvarManager->log(msg); });
     });
 }
 
