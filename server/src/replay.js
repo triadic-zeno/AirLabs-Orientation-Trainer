@@ -1,7 +1,7 @@
 // Reads an AirLabs replay ("ALR1", see AirLabs/Replay.h for the layout).
 export const EV = { SPAWN: 1, HIT: 2, MISS: 3, HYB_START: 4, HYB_END: 5, CH_LAUNCH: 6, CH_STOP: 7, CH_CATCH: 8, CH_MISS: 9 };
 export const RF = { NOROLL: 1, KEYBOARD: 2, TICKTIMING: 4 };
-const HEADER = 64, SAMPLE = 14, EVENT = 12, MAX_SAMPLES = 120 * 75;
+const HEADER = 64, SAMPLE = 14, EVENT = 12, MAX_SAMPLES = 120 * 75 * 2; // room for a hook that fires twice a tick
 
 export function parseReplay(bytes) {
   if (!(bytes instanceof Uint8Array)) bytes = new Uint8Array(bytes);

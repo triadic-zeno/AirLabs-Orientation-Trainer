@@ -92,7 +92,7 @@ test('too soon, and not a new best', async () => {
   assert.equal(lower.json.score, 44699);
 });
 
-test('a doctored run is refused with the reason', async () => {
+test('a doctored run is refused with the reason, and kept (without the player) to look at', async () => {
   const env = fresh();
   const b = new Uint8Array(fx('0-4-1-0'));
   new DataView(b.buffer).setInt32(40, 50000, true);
@@ -100,6 +100,13 @@ test('a doctored run is refused with the reason', async () => {
   assert.equal(r.status, 422);
   assert.match(r.json.error, /score doesn't match/);
   assert.equal((await call(env, 'GET', '/api/boards/0-4-1-0')).json.entries.length, 0);
+  const list = await call(env, 'GET', '/api/rejects');
+  assert.equal(list.json.rejects.length, 1);
+  assert.match(list.json.rejects[0].reason, /score doesn't match/);
+  assert.equal(list.json.rejects[0].board, '0-4-1-0');
+  assert.equal(JSON.stringify(list.json).includes('333'), false); // no player id
+  const one = await call(env, 'GET', `/api/rejects/${list.json.rejects[0].id}`);
+  assert.deepEqual(fromBase64(one.json.replay), b);
 });
 
 test('ranking order, ties, and your own place', async () => {

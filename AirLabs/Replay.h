@@ -31,7 +31,7 @@ namespace airlabs
     constexpr std::size_t kReplayHeaderBytes = 64;
     constexpr std::size_t kReplaySampleBytes = 14;
     constexpr std::size_t kReplayEventBytes = 12;
-    constexpr std::uint32_t kReplayMaxSamples = 120 * 75; // a 60 s run is 7200
+    constexpr std::uint32_t kReplayMaxSamples = 120 * 75 * 2; // a 60 s run is 7200 (more if the game calls the hook more often)
 
     enum ReplayEvent : std::uint8_t
     {

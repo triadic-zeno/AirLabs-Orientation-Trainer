@@ -16,8 +16,15 @@ class Stmt {
 export function makeD1(file = ':memory:', migrationsDir) {
   const db = new DatabaseSync(file);
   if (migrationsDir) {
-    const have = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='players'").get();
-    if (!have) for (const f of readdirSync(migrationsDir).filter((x) => x.endsWith('.sql')).sort()) db.exec(readFileSync(join(migrationsDir, f), 'utf8'));
+    // Like wrangler: apply each migration once, in order, remembering which ran.
+    db.exec('CREATE TABLE IF NOT EXISTS d1_migrations (name TEXT PRIMARY KEY)');
+    const done = new Set(db.prepare('SELECT name FROM d1_migrations').all().map((r) => r.name));
+    if (!done.size && db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='players'").get()) done.add('0001_init.sql'); // made before this was tracked
+    for (const f of readdirSync(migrationsDir).filter((x) => x.endsWith('.sql')).sort()) {
+      if (done.has(f)) continue;
+      db.exec(readFileSync(join(migrationsDir, f), 'utf8'));
+      db.prepare('INSERT OR IGNORE INTO d1_migrations (name) VALUES (?)').run(f);
+    }
   }
   return {
     raw: db,

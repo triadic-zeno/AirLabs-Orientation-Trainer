@@ -74,16 +74,19 @@ function verify(r) {
     }
   } else {
     flags.push('clock');
-    if (n < 6000 || n > 8400) reject('wrong number of ticks for a 60 s run');
+    // Timed by the PC clock: the hook fired at some other rate (40 to 300 a second is accepted).
+    if (n < 2400 || n > 18000) reject('wrong number of ticks for a 60 s run');
     let prev = 0;
     for (let i = 0; i < n; i++) {
       t[i] = r.ms[i] / 1000;
       dt[i] = t[i] - prev;
-      if (dt[i] < 0 || dt[i] > 0.05) reject('sample times out of order');
+      if (dt[i] < 0 || dt[i] > 0.06) reject('sample times out of order'); // the plugin caps a tick at 50 ms; ms rounding adds 1
+
       prev = t[i];
     }
   }
-  if (t[n - 1] < RUN_SEC - 1e-6 || (n > 1 && t[n - 2] >= RUN_SEC)) reject('a run lasts 60 s');
+  const slack = tickTiming ? 1e-6 : 0.0015; // sample times are whole milliseconds
+  if (t[n - 1] < RUN_SEC - slack || (n > 1 && t[n - 2] >= RUN_SEC + slack)) reject('a run lasts 60 s');
   if (r.runSec < 59.99 || r.runSec > 60.2) reject('a run lasts 60 s');
   const tol = tickTiming ? 1 : 3; // ticks of slack for an event
 
@@ -263,7 +266,7 @@ function verify(r) {
       const dur = t[stop.tick] - tl;
       if (dur < C.chaseMoveMin - 1e-6 || dur > C.chaseMoveMax + DT + 1e-6) reject('a dash lasted the wrong time');
       const a = launch < 0 ? 0 : launch, steps = stop.tick - a;
-      const v = dirAngle(a, stop.tick) / (steps * DT);
+      const v = dirAngle(a, stop.tick) / Math.max(1e-3, t[stop.tick] - t[a]);
       if (v > hi * 1.01 + 0.3 || v < lo * 0.99 - 0.3) reject(`a dash went at ${v.toFixed(1)} deg/s, outside the preset's ${lo}-${hi}`);
       const mid = a + (steps >> 1);
       if (Math.abs(dirAngle(a, mid) + dirAngle(mid, stop.tick) - dirAngle(a, stop.tick)) > 0.5) reject("a dash didn't go straight");

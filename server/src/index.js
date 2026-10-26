@@ -4,6 +4,7 @@
 //   GET  /api/boards            every board with its player count and leader
 //   GET  /api/boards/:board     one board (?limit=, ?me=<public id>)
 //   GET  /api/replays/:run      the replay of a run that is somebody's current best
+//   GET  /api/rejects[/:id]     recent runs the checks turned away (reason, board, score, replay; no player)
 //   GET  /                      the leaderboard as a web page
 //
 // Plugin requests add ?format=text and get "key value" lines (rows tab-separated), so the
@@ -32,6 +33,8 @@ export default {
       let m;
       if (req.method === 'GET' && (m = /^\/api\/boards\/([\w-]+)$/.exec(p))) return await getBoard(env, m[1], url, text);
       if (req.method === 'GET' && (m = /^\/api\/replays\/(\d+)$/.exec(p))) return await getReplay(env, +m[1], text);
+      if (req.method === 'GET' && p === '/api/rejects') return await listRejects(env, url, text);
+      if (req.method === 'GET' && (m = /^\/api\/rejects\/(\d+)$/.exec(p))) return await getReject(env, +m[1], text);
       return reply({ ok: false, error: 'not found' }, text, 404);
     } catch (e) {
       console.log('error', e && e.stack || e);
@@ -142,7 +145,13 @@ async function postRun(req, env, text) {
 
   const v = verifyReplay(rep);
   if (!v.ok) {
-    console.log('rejected', id, board, rep.score, v.reason);
+    console.log('rejected', board, rep.score, v.reason);
+    // Keep it (without who sent it) so the checks can be looked at against real runs.
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO rejects (created, board, score, version, reason, data) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(t, board, rep.score, rep.version, v.reason, toBase64(await deflate(packReplay(raw)))),
+      env.DB.prepare('DELETE FROM rejects WHERE id <= (SELECT MAX(id) - 300 FROM rejects)'),
+    ]);
     return reply({ ok: false, error: 'run not accepted: ' + v.reason, pid, key: newKey }, text, 422);
   }
 
@@ -245,4 +254,20 @@ async function getReplay(env, runId, text) {
   const b = parseBoard(row.board);
   return reply({ ok: true, run: row.id, board: row.board, title: boardTitle(b), name: row.name, platform: row.platform, pid: row.pid,
     score: row.score, date: day(row.created), replay: toBase64(bytes) }, text, 200, { 'cache-control': 'max-age=3600' });
+}
+
+// ---------------------------------------------------------------------------------------------
+// GET /api/rejects, /api/rejects/:id: runs the checks turned away (no player details)
+// ---------------------------------------------------------------------------------------------
+async function listRejects(env, url, text) {
+  const limit = Math.min(300, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10) || 50));
+  const { results } = await env.DB.prepare('SELECT id, created, board, score, version, reason FROM rejects ORDER BY id DESC LIMIT ?').bind(limit).all();
+  if (text) return reply({ ok: true, rows: results.map((x) => [x.id, new Date(x.created * 1000).toISOString(), x.board, x.score, x.version, x.reason]) }, true);
+  return reply({ ok: true, rejects: results.map((x) => ({ ...x, date: new Date(x.created * 1000).toISOString() })) }, false);
+}
+async function getReject(env, id, text) {
+  const row = await env.DB.prepare('SELECT id, created, board, score, version, reason, data FROM rejects WHERE id = ?').bind(id).first();
+  if (!row) return reply({ ok: false, error: 'no such reject' }, text, 404);
+  const bytes = unpackReplay(await inflate(fromBase64(row.data)));
+  return reply({ ok: true, id: row.id, board: row.board, score: row.score, version: row.version, reason: row.reason, replay: toBase64(bytes) }, text);
 }
