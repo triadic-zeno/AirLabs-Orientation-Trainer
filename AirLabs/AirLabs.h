@@ -157,6 +157,7 @@ private:
     std::shared_ptr<int> guideMode;
     std::shared_ptr<bool> lbPost;          // airlabs_lb_post: post your preset runs to the public leaderboard
     std::shared_ptr<std::string> lbUrl;    // airlabs_lb_url: the leaderboard server
+    std::shared_ptr<std::string> lbNameSet; // airlabs_lb_name: the name to show on the leaderboard ("" = your Rocket League name)
 
     // ---- run state ----
     RunState state = RunState::Idle;
@@ -227,6 +228,11 @@ private:
     bool SavePendingLocked(PendingRun& p);      // caller holds lbMutex; false if a better run on that board is already waiting
     void CountPendingLocked();                  // caller holds lbMutex
     void RetryPending();                        // posts the oldest waiting run (if posting is on and nothing is in flight)
+    void RequeueRejected();                     // runs turned away by checks the server no longer has: send them again
+    bool lbRequeued = false;
+    std::string LbName(const std::string& gameName) const; // the name runs are posted under
+    char lbNameEdit[40] = {};                   // Leaderboard page: the name being typed (render thread)
+    bool lbEditingName = false;
     void SchedulePendingRetry(float seconds);
     void SaveLeaderboardFileLocked() const;     // caller holds lbMutex
     std::string LbUrl(const std::string& path) const;

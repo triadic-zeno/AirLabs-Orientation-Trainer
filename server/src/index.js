@@ -144,7 +144,7 @@ async function postRun(req, env, text) {
   }
 
   const v = verifyReplay(rep);
-  if (!v.ok) {
+  if (!v.ok) { // not a real preset run (wrong ball distance, target size or aim for the preset)
     console.log('rejected', board, rep.score, v.reason);
     // Keep it (without who sent it) so the checks can be looked at against real runs.
     await env.DB.batch([
@@ -155,22 +155,26 @@ async function postRun(req, env, text) {
     return reply({ ok: false, error: 'run not accepted: ' + v.reason, pid, key: newKey }, text, 422);
   }
 
+  // The run goes up with the score it claims. What the replay check noticed (and the score it
+  // replayed) is kept with the run for reference only; nothing is shown or turned away for it.
+  const score = rep.score;
+  const flags = v.flags.concat(v.score !== null && v.score !== rep.score ? [`replayed:${v.score}`] : []);
   const stored = toBase64(await deflate(packReplay(raw)));
   const ins = await env.DB.prepare(
     'INSERT INTO runs (player, board, score, created, version, targets, misses, on_pct, avg_time, flags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id')
-    .bind(id, board, rep.score, t, rep.version, v.stats.targets, v.stats.misses, v.stats.onPct, v.stats.avgTime, v.flags.join(' ')).first();
+    .bind(id, board, score, t, rep.version, v.stats.targets, v.stats.misses, v.stats.onPct, v.stats.avgTime, flags.join(' ')).first();
   const runId = ins.id;
   const ops = [
     env.DB.prepare('INSERT INTO replays (run, data) VALUES (?, ?)').bind(runId, stored),
     env.DB.prepare(`INSERT INTO best (board, player, run, score, created) VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(board, player) DO UPDATE SET run = excluded.run, score = excluded.score, created = excluded.created, plays = plays + 1`)
-      .bind(board, id, runId, rep.score, t),
+      .bind(board, id, runId, score, t),
   ];
   if (prev) ops.push(env.DB.prepare('DELETE FROM replays WHERE run = ?').bind(prev.run)); // only the best keeps its replay
   await env.DB.batch(ops);
-  const pos = await position(env, board, rep.score, t, runId, pid);
+  const pos = await position(env, board, score, t, runId, pid);
   return reply({
-    ok: true, best: true, board, title: boardTitle(b), score: rep.score, pos: pos.pos, of: pos.total, run: runId, pid, key: newKey,
+    ok: true, best: true, board, title: boardTitle(b), score, pos: pos.pos, of: pos.total, run: runId, pid, key: newKey,
     message: `New best posted: #${pos.pos} of ${pos.total}.`,
   }, text);
 }

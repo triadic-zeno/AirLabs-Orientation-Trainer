@@ -1,14 +1,16 @@
-// Scores a replay again from its samples, and checks that it's a real preset run.
+// Scores a replay again from its samples, and notes anything unusual about it.
 //
-// The replay holds, for every physics tick, the car's rotation and the direction to the ball.
-// That's all a run's score depends on, so the server replays the plugin's own rules over it
-// (when a target counts as reached, the 0.2 s hold, the 5 s limit, points per flick, tracking
-// credit per tick) and gets the score itself. On top of that it checks the run against the
-// preset (ball distance and speed, turn sizes, dash lengths) and against the game's physics
-// (no car spins faster than 5.5 rad/s; No air roll runs don't roll).
+// The replay holds, for every tick, the car's rotation and the direction to the ball. That's all
+// a run's score depends on, so the server replays the plugin's own rules over it (when a target
+// counts as reached, the 0.2 s hold, the 5 s limit, points per flick, tracking credit per tick)
+// and gets the score itself.
 //
-// The plugin's events (target appeared, hit, miss, ...) say where each phase starts; every one
-// is checked against the samples, allowing a tick either way for rounding at the target's edge.
+// None of this turns a run away or is shown anywhere: the replayed score and anything unusual
+// (timing, spin speed, roll on No air roll, ball speed, turn sizes, events that don't line up, a
+// score past the Pro mark) are only kept with the run, for reference. The only runs refused are
+// ones that aren't a preset at all (wrong ball distance, target size or aim).
+// (Real game data showed why: the car's rotation can update every other tick, which made honest
+// runs look like they spun at twice the game's limit.)
 import {
   C, DT, FLICK, TRACK, HYBRID, CHASE, flickPoints, trackCredit, ballTargetDeg,
   presetCount, presetList, presetDistance, presetAim, proMark, clamp,
@@ -36,6 +38,8 @@ function sinTable() {
 
 class Reject extends Error {}
 const reject = (msg) => { throw new Reject(msg); };
+class Broken extends Error {}
+const broken = (msg) => { throw new Broken(msg); }; // the events can't be followed any further
 
 export function verifyReplay(r) {
   try {
@@ -47,7 +51,8 @@ export function verifyReplay(r) {
 }
 
 function verify(r) {
-  const flags = [];
+  const notes = new Set();
+  const note = (code) => notes.add(code);
   // ---- the preset ----
   if (r.mode > 3 || r.preset >= presetCount(r.mode)) reject('not a preset run');
   if (r.range > 2) reject('bad range');
@@ -66,28 +71,28 @@ function verify(r) {
   const tickTiming = (r.flags & RF.TICKTIMING) !== 0;
   const t = new Float64Array(n), dt = new Float64Array(n);
   if (tickTiming) {
-    if (Math.abs(n - 7200) > 2) reject('a run is 7200 ticks');
+    if (Math.abs(n - 7200) > 2) note('ticks');
     let acc = 0;
     for (let i = 0; i < n; i++) {
       acc += DT; t[i] = acc; dt[i] = DT;
-      if (Math.abs(r.ms[i] - t[i] * 1000) > 2) reject("sample times don't match the tick rate");
+      if (Math.abs(r.ms[i] - t[i] * 1000) > 2) note('timing');
     }
   } else {
-    flags.push('clock');
+    note('clock');
     // Timed by the PC clock: the hook fired at some other rate (40 to 300 a second is accepted).
-    if (n < 2400 || n > 18000) reject('wrong number of ticks for a 60 s run');
+    if (n < 2400 || n > 18000) note('ticks');
     let prev = 0;
     for (let i = 0; i < n; i++) {
       t[i] = r.ms[i] / 1000;
       dt[i] = t[i] - prev;
-      if (dt[i] < 0 || dt[i] > 0.06) reject('sample times out of order'); // the plugin caps a tick at 50 ms; ms rounding adds 1
+      if (dt[i] < 0 || dt[i] > 0.06) { note('timing'); dt[i] = clamp(dt[i], 0, 0.06); } // the plugin caps a tick at 50 ms; ms rounding adds 1
 
       prev = t[i];
     }
   }
   const slack = tickTiming ? 1e-6 : 0.0015; // sample times are whole milliseconds
-  if (t[n - 1] < RUN_SEC - slack || (n > 1 && t[n - 2] >= RUN_SEC + slack)) reject('a run lasts 60 s');
-  if (r.runSec < 59.99 || r.runSec > 60.2) reject('a run lasts 60 s');
+  if (t[n - 1] < RUN_SEC - slack || (n > 1 && t[n - 2] >= RUN_SEC + slack)) note('length');
+  if (r.runSec < 59.99 || r.runSec > 60.2) note('length');
   const tol = tickTiming ? 1 : 3; // ticks of slack for an event
 
   // ---- the car, tick by tick: its axes (BasisFromRotator, from the sine table), its aim, and
@@ -128,13 +133,9 @@ function verify(r) {
   const dirAngle = (a, b) => Math.acos(clamp(cosDir(a, b), -1, 1)) / DEG;
   const elevation = (j) => Math.asin(clamp(D[j * 3 + 2], -1, 1)) / DEG;
 
-  if (tickTiming) {
-    if (maxSpin > C.maxSpin * 4) reject('the car jumped to a new rotation mid-run');
-    if (overSpin > Math.max(12, n * 0.01)) reject('the car spun faster than Rocket League allows (5.5 rad/s)');
-    if (overSpin > 0) flags.push('spin');
-  }
+  if (tickTiming && (maxSpin > C.maxSpin * 4 || overSpin > Math.max(12, n * 0.01))) note('spin');
   const meanRoll = rollSum / Math.max(1, n - 1);
-  if (noRoll && meanRoll > 0.25) reject('the car rolled on a No air roll run');
+  if (noRoll && meanRoll > 0.25) note('roll');
 
   // ---- the run itself ----
   const evs = r.events.slice().sort((a, b) => a.tick - b.tick);
@@ -165,17 +166,19 @@ function verify(r) {
   const cosStill = Math.cos(0.05 * DEG);
   const checkBallStill = (from, to, what) => {
     for (let j = from + 1; j <= Math.min(to, n - 1); j++)
-      if (cosDir(from, j) < cosStill) reject(`the ball moved ${what}`);
+      if (cosDir(from, j) < cosStill) { note('ball'); return; }
   };
   // Ball speed over a stretch of ticks [a, b]: angle covered between a-1 and b, per second.
   const speedCheck = (a, b, lo, hi, what) => {
     const W = 12;
     for (let j = Math.max(a, 1); j + W <= b; j += W) {
       const v = dirAngle(j - 1, j - 1 + W) / (t[j - 1 + W] - t[j - 1]);
-      if (v > hi * 1.02 + 0.5 || v < lo * 0.95 - 0.5) reject(`the ball moved at ${v.toFixed(1)} deg/s ${what}, outside the preset's ${lo}-${hi}`);
+      if (v > hi * 1.02 + 0.5 || v < lo * 0.95 - 0.5) { note('ball-speed'); return; }
     }
   };
 
+  let scored = true;
+  try {
   if (r.mode === FLICK || r.mode === HYBRID) {
     const minTurn = r.mode === FLICK ? preset.minTurn : C.hybridFlickMin;
     const maxTurn = r.mode === FLICK ? preset.maxTurn : C.hybridFlickMax;
@@ -185,49 +188,46 @@ function verify(r) {
     while (true) {
       const e = evs[k];
       if (!e) {
-        if (expect < n) reject('targets stopped appearing');
+        if (expect < n) note('events');
         break;
       }
-      if (e.type !== EV.SPAWN) reject('expected a new target');
-      if (Math.abs(e.tick - expect) > tol) reject('a target appeared at the wrong time');
+      if (e.type !== EV.SPAWN) broken('expected a new target');
+      if (Math.abs(e.tick - expect) > tol) note('timing');
       const s = e.tick;
       if (s >= n) break;
-      if (s > 0 && dirAngle(s - 1, s) < 0.05) reject("a new target didn't move the ball");
+      if (s > 0 && dirAngle(s - 1, s) < 0.05) note('ball');
       const turn = err(s, s);
-      if (Math.abs(turn - e.value) > 0.2) reject("a target's turn doesn't match the car's rotation");
+      if (Math.abs(turn - e.value) > 0.2) note('turns');
       if (turn < minTurn - 0.3 || turn > maxTurn + 0.3) out.offTurn++;
       const el = elevation(s);
-      if (el < bandMin - 0.2 || el > bandMax + 0.2) reject('a target was outside the height range');
+      if (el < bandMin - 0.2 || el > bandMax + 0.2) note('ball');
 
       const sim = flickTarget(s);
       const o = evs[k + 1];
       if (!o || o.tick >= n) {
-        if (sim.type && sim.tick < n - tol) reject('a target was reached or missed but not counted');
+        if (sim.type && sim.tick < n - tol) note('events');
         break;
       }
-      if (o.type !== EV.HIT && o.type !== EV.MISS) reject('expected a hit or a miss');
-      if (o.type !== sim.type || Math.abs(o.tick - sim.tick) > tol)
-        reject(`a ${o.type === EV.HIT ? 'hit' : 'miss'} doesn't match the car's movement`);
+      if (o.type !== EV.HIT && o.type !== EV.MISS) broken('expected a hit or a miss');
+      if (o.type !== sim.type || Math.abs(o.tick - sim.tick) > tol) note('events');
       checkBallStill(s, o.tick, 'during a flick');
-      if (o.type === EV.HIT) {
+      // Scored by what the samples show (sim), counted by what the plugin said (o).
+      if (sim.type === EV.HIT) {
         const pts = flickPoints(sim.time, turn);
-        if (Math.abs(pts - o.value) > Math.max(40, 0.04 * pts)) reject("a hit's points don't match");
+        if (o.type === EV.HIT && Math.abs(pts - o.value) > Math.max(40, 0.04 * pts)) note('points');
         out.score += pts;
         out.sumTime += sim.time;
-        out.targets++;
-      } else {
-        out.score = Math.max(0, out.score - C.missPenalty);
-        out.misses++;
-      }
+      } else if (sim.type === EV.MISS) out.score = Math.max(0, out.score - C.missPenalty);
+      if (o.type === EV.HIT) out.targets++; else out.misses++;
       k += 2;
       let last = o.tick;
       if (r.mode === HYBRID && o.type === EV.HIT) {
         const hs = evs[k], he = evs[k + 1];
-        if (!hs || hs.type !== EV.HYB_START || hs.tick !== o.tick) reject('expected the Hybrid ball to take off');
-        if (!he || he.type !== EV.HYB_END) reject('expected the Hybrid tracking to end');
+        if (!hs || hs.type !== EV.HYB_START || hs.tick !== o.tick) broken('expected the Hybrid ball to take off');
+        if (!he || he.type !== EV.HYB_END) broken('expected the Hybrid tracking to end');
         let endSim = o.tick + 1;
         while (endSim < n && t[endSim] < t[o.tick] + HYB_TRACK) endSim++;
-        if (endSim < n ? Math.abs(he.tick - endSim) > tol : he.tick < n - 1) reject('Hybrid tracking lasted the wrong time');
+        if (endSim < n ? Math.abs(he.tick - endSim) > tol : he.tick < n - 1) note('timing');
         const end = Math.min(he.tick, n - 1);
         for (let j = o.tick + 1; j <= end; j++) track(j);
         speedCheck(o.tick + 1, end, lo, hi, 'while tracking');
@@ -238,16 +238,16 @@ function verify(r) {
       }
       expect = nextSpawnTick(last);
     }
-    if (out.offTurn > 2) reject("targets weren't the preset's turn sizes");
+    if (out.offTurn > 2) note('turns');
   } else if (r.mode === TRACK) {
-    if (evs.length) reject('a Track run has no events');
+    if (evs.length) note('events');
     for (let j = 0; j < n; j++) track(j);
     const lo = preset.dynamic ? preset.vMin : preset.speed, hi = preset.dynamic ? preset.vMax : preset.speed;
     speedCheck(0, n - 1, lo, hi, '');
   } else if (r.mode === CHASE) {
     for (let j = 0; j < n; j++) track(j);
     const lo = preset.dynamic ? preset.vMin : preset.speed, hi = preset.dynamic ? preset.vMax : preset.speed;
-    if (!evs.length || evs[0].type !== EV.CH_LAUNCH || evs[0].tick !== 0) reject('a Chase run starts with the ball dashing off');
+    if (!evs.length || evs[0].type !== EV.CH_LAUNCH || evs[0].tick !== 0) broken('a Chase run starts with the ball dashing off');
     // Where the aim is on the ball, and since when (reset when a catch sends the ball off).
     const catchTicks = new Set(evs.filter((e) => e.type === EV.CH_CATCH).map((e) => e.tick));
     const onSince = new Float64Array(n);
@@ -261,15 +261,15 @@ function verify(r) {
     while (true) {
       const stop = evs[k];
       if (!stop || stop.tick >= n) break;
-      if (stop.type !== EV.CH_STOP) reject('expected the ball to stop');
+      if (stop.type !== EV.CH_STOP) broken('expected the ball to stop');
       const tl = launch < 0 ? 0 : t[launch];
       const dur = t[stop.tick] - tl;
-      if (dur < C.chaseMoveMin - 1e-6 || dur > C.chaseMoveMax + DT + 1e-6) reject('a dash lasted the wrong time');
+      if (dur < C.chaseMoveMin - 1e-6 || dur > C.chaseMoveMax + DT + 1e-6) note('timing');
       const a = launch < 0 ? 0 : launch, steps = stop.tick - a;
       const v = dirAngle(a, stop.tick) / Math.max(1e-3, t[stop.tick] - t[a]);
-      if (v > hi * 1.01 + 0.3 || v < lo * 0.99 - 0.3) reject(`a dash went at ${v.toFixed(1)} deg/s, outside the preset's ${lo}-${hi}`);
+      if (v > hi * 1.01 + 0.3 || v < lo * 0.99 - 0.3) note('ball-speed');
       const mid = a + (steps >> 1);
-      if (Math.abs(dirAngle(a, mid) + dirAngle(mid, stop.tick) - dirAngle(a, stop.tick)) > 0.5) reject("a dash didn't go straight");
+      if (Math.abs(dirAngle(a, mid) + dirAngle(mid, stop.tick) - dirAngle(a, stop.tick)) > 0.5) note('ball');
       // stopped: the plugin checks for a catch (or a miss) every tick from the stop on
       const ts = t[stop.tick];
       let simType = 0, simTick = n;
@@ -279,37 +279,45 @@ function verify(r) {
       }
       const o = evs[k + 1];
       if (!o || o.tick >= n) {
-        if (simType && simTick < n - tol) reject('a catch or miss was not counted');
+        if (simType && simTick < n - tol) note('events');
         checkBallStill(stop.tick, n - 1, 'while stopped');
         break;
       }
-      if (o.type !== EV.CH_CATCH && o.type !== EV.CH_MISS) reject('expected a catch or a miss');
-      if (o.type !== simType || Math.abs(o.tick - simTick) > tol) reject(`a ${o.type === EV.CH_CATCH ? 'catch' : 'miss'} doesn't match the car's movement`);
+      if (o.type !== EV.CH_CATCH && o.type !== EV.CH_MISS) broken('expected a catch or a miss');
+      if (o.type !== simType || Math.abs(o.tick - simTick) > tol) note('events');
       checkBallStill(stop.tick, o.tick, 'while stopped');
       const l = evs[k + 2];
-      if (!l || l.type !== EV.CH_LAUNCH || l.tick !== o.tick) reject('expected the ball to dash off again');
+      if (!l || l.type !== EV.CH_LAUNCH || l.tick !== o.tick) broken('expected the ball to dash off again');
       if (o.type === EV.CH_CATCH) { out.targets++; out.sumTime += t[o.tick] - ts; } else out.misses++;
       launch = o.tick;
       k += 3;
     }
   }
 
+  } catch (e) {
+    if (!(e instanceof Broken)) throw e;
+    note('events');
+    scored = false; // the events couldn't be followed to the end: the claimed score stands
+  }
+
   // ---- totals ----
-  if (out.targets !== r.targets || out.misses !== r.misses || out.hybReps !== r.hybReps) reject("the run's counts don't match its events");
-  const score = Math.round(out.score);
-  if (Math.abs(score - r.score) > Math.max(25, 0.005 * score)) reject(`score doesn't match the replay (${r.score} claimed, ${score} replayed)`);
-  // The Pro mark is the human limit. Flick and Hybrid: up to 15% past it. Track and Chase score
-  // time on the ball (60,000 max), so there the limit is on the time off it: at least half the
-  // Pro's.
+  if (scored && (out.targets !== r.targets || out.misses !== r.misses || out.hybReps !== r.hybReps)) note('counts');
+  const score = scored ? Math.round(out.score) : null;
+  // The board shows the replayed score when it's clearly different from the claimed one.
+  let boardScore = r.score;
+  if (scored && Math.abs(score - r.score) > Math.max(25, 0.005 * score)) { note('score'); boardScore = score; }
+  // Past the Pro mark (the human limit), and far past it. Flick and Hybrid: 15% past. Track and
+  // Chase score time on the ball (60,000 max): less than half the Pro's time off it.
   const pro = proMark(r.mode, r.preset, r.range);
   const tracky = r.mode === TRACK || r.mode === CHASE;
-  if (tracky ? 60000 - r.score < 0.5 * (60000 - pro) : r.score > pro * PRO_ALLOWANCE) reject('score is beyond the human limit for this preset');
-  if (r.score > pro) flags.push('pro');
-  if (r.flags & RF.KEYBOARD) flags.push('keyboard');
+  if (boardScore > pro) note('pro');
+  if (tracky ? 60000 - boardScore < 0.5 * (60000 - pro) : boardScore > pro * PRO_ALLOWANCE) note('beyond-pro');
+  if (r.flags & RF.KEYBOARD) note('keyboard');
   return {
     ok: true,
     score,
-    flags,
+    boardScore,
+    flags: [...notes],
     stats: {
       targets: out.targets, misses: out.misses, hybReps: out.hybReps,
       onPct: out.trackTime > 0 ? Math.round(1000 * out.onTime / out.trackTime) / 10 : null,

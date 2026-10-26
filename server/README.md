@@ -5,17 +5,16 @@ preset runs here and reads the boards and replays; `/` is the leaderboard as a w
 
 Live at <https://leaderboard.airlabs.workers.dev>.
 
-## How a run is checked
+## Runs and replays
 
 A posted run is the plugin's replay (`AirLabs/Replay.h`, format `ALR1`): every physics tick of
 the run, with the car's rotation and the direction to the ball, plus events (target appeared,
-hit, miss, ...). The score depends on nothing else, so `src/verify.js` plays it back through
-the plugin's own rules and scores it again, then checks it against the preset (ball distance,
-ball speed, turn sizes, dash lengths, hold and time limits) and against Rocket League's physics
-(the 5.5 rad/s spin cap; no roll on No air roll runs). Scores past the human limit (the Pro
-mark; on Track and Chase, less than half the Pro's time off the ball) are turned away. Only a
-run that beats the player's best on its board is checked and stored. Each player's best run
-per board keeps its replay (stored delta-packed and deflated, about a third of its raw size).
+hit, miss, ...). Every preset run is accepted with the score it claims; only a run that isn't a
+preset at all (wrong ball distance, target size or aim) is refused. `src/verify.js` still plays
+each run back through the plugin's own rules and keeps the replayed score and anything unusual
+in `runs.flags`, for reference only (nothing is shown or refused for it). Only a run that beats
+the player's best on its board is stored. Each player's best run per board keeps its replay
+(stored delta-packed and deflated, about a third of its raw size), so anyone can watch it.
 
 The presets, run rules and rank marks come from `AirLabs/TrainerCore.h` through
 `tools/dump_core.cpp`, which writes `src/core-data.js`. The deploy fails if that file is stale:

@@ -470,14 +470,13 @@ on boards of its own. The same boards are on the web at
 - **Watch** plays any run on the board in the game: your car and the ball follow the replay
   tick by tick, with the score building as it did in the run. Stop (or your `airlabs_toggle`
   key) ends it. Outside Freeplay, Watch loads the map first.
-- **Every run is checked.** The plugin records the whole run, one sample per physics tick: the
-  car's rotation and where the ball was. That's everything a score depends on, so the server
-  plays the run back through the same rules as the plugin (the 0.2 s hold, the 5 s limit,
-  points per flick, tracking credit per tick) and scores it itself. It also checks the run
-  against the preset (ball distance, ball speed, turn sizes, dash lengths) and against Rocket
-  League's physics (no car spins faster than 5.5 rad/s, and No air roll runs don't roll), and
-  turns away scores past the human limit (the Pro mark). A run that doesn't add up isn't posted,
-  and the plugin says why.
+- **Every run comes with its replay.** The plugin records the whole run, one sample per physics
+  tick: the car's rotation and where the ball was, which is everything a score depends on. Anyone
+  can watch any run, so a run that doesn't add up is plain to see. The server also plays each run
+  back through the plugin's own rules and keeps that score with the run for reference.
+- **Your name:** runs post under your Rocket League name. Offline (without Easy Anti-Cheat) the
+  game can report a placeholder like "User-1a2b3c" instead, so the Leaderboard page has
+  **Change name** to set the name shown on the board.
 - **What's stored:** your Rocket League name, platform, your platform account id (used only to
   tell players apart; never shown), and your best run per board with its replay. The first time
   you post, the server gives this install a key (`data/AirLabs/leaderboard.txt`), so nobody else

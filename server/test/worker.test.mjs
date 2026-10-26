@@ -92,18 +92,29 @@ test('too soon, and not a new best', async () => {
   assert.equal(lower.json.score, 44699);
 });
 
-test('a doctored run is refused with the reason, and kept (without the player) to look at', async () => {
+test('every preset run goes up with the score it claims (the replayed score is only kept for reference)', async () => {
   const env = fresh();
   const b = new Uint8Array(fx('0-4-1-0'));
   new DataView(b.buffer).setInt32(40, 50000, true);
-  const r = await post(env, '333', 'C', b);
+  const r = await post(env, '333-raised', 'C', b);
+  assert.equal(r.status, 200, r.text);
+  assert.equal(r.json.score, 50000);
+  const e = (await call(env, 'GET', '/api/boards/0-4-1-0')).json.entries[0];
+  assert.equal(e.score, 50000);
+  assert.equal(e.flags, undefined); // nothing shown
+  const row = env.DB.raw.prepare('SELECT flags FROM runs WHERE id = ?').get(r.json.run);
+  assert.match(row.flags, /replayed:17019/);
+});
+
+test('a run that is not the preset it says is turned away, and kept (without the player) to look at', async () => {
+  const env = fresh();
+  const b = new Uint8Array(fx('0-4-1-0'));
+  new DataView(b.buffer).setFloat32(24, 450, true); // ball distance no preset uses
+  const r = await post(env, '333-wrong', 'C', b);
   assert.equal(r.status, 422);
-  assert.match(r.json.error, /score doesn't match/);
-  assert.equal((await call(env, 'GET', '/api/boards/0-4-1-0')).json.entries.length, 0);
+  assert.match(r.json.error, /distance/);
   const list = await call(env, 'GET', '/api/rejects');
   assert.equal(list.json.rejects.length, 1);
-  assert.match(list.json.rejects[0].reason, /score doesn't match/);
-  assert.equal(list.json.rejects[0].board, '0-4-1-0');
   assert.equal(JSON.stringify(list.json).includes('333'), false); // no player id
   const one = await call(env, 'GET', `/api/rejects/${list.json.rejects[0].id}`);
   assert.deepEqual(fromBase64(one.json.replay), b);

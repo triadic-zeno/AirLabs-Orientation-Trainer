@@ -1188,7 +1188,7 @@ void AirLabs::WinLeaderboard()
         uploading = lbUploading;
         pending = lbPendingCount;
         pid = lbPid;
-        name = lbName;
+        name = LbName(lbName);
         loading = loadingRun;
         watchName = playName;
         playErr = playError;
@@ -1242,6 +1242,9 @@ void AirLabs::WinLeaderboard()
             SetCvarI("airlabs_lb_post", 1);
             gameWrapper->Execute([this](GameWrapper*) { RetryPending(); }); // send what's waiting straight away
         }
+        ImGui::SameLine(0, 14);
+        ImGui::AlignTextToFramePadding();
+        if (LinkButton("##lbname0", "Change the name shown", small)) { lbEditingName = !lbEditingName; std::snprintf(lbNameEdit, sizeof lbNameEdit, "%s", name.c_str()); }
         c.End();
     }
     else
@@ -1249,7 +1252,29 @@ void AirLabs::WinLeaderboard()
         Dot(kGood);
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kGood), "%s", name.empty() ? "Posting your runs" : ("Posting your runs as " + name).c_str());
         ImGui::SameLine(0, 14);
+        if (LinkButton("##lbname", "Change name", small)) { lbEditingName = !lbEditingName; std::snprintf(lbNameEdit, sizeof lbNameEdit, "%s", name.c_str()); }
+        ImGui::SameLine(0, 14);
         if (LinkButton("##lbstop", "Stop posting", small)) SetCvarI("airlabs_lb_post", 0);
+    }
+    if (lbEditingName)
+    {
+        // The name on the board. Blank goes back to your Rocket League name (offline it can be a
+        // placeholder like "User-1a2b3c").
+        FontScope f(small);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Name on the leaderboard");
+        ImGui::SameLine(0, 10);
+        ImGui::SetNextItemWidth(240.f);
+        const bool enter = ImGui::InputText("##lbnameinput", lbNameEdit, sizeof lbNameEdit, ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SameLine(0, 10);
+        if (Chip("##lbnamesave", "Save", true, small, 30.f) || enter)
+        {
+            cvarManager->getCvar("airlabs_lb_name").setValue(std::string(lbNameEdit));
+            lbEditingName = false;
+        }
+        ImGui::SameLine(0, 8);
+        if (LinkButton("##lbnamecancel", "Cancel", small)) lbEditingName = false;
+        ImGui::TextDisabled("Shown with your runs from your next post. Leave it blank to use your Rocket League name.");
     }
     if (!status.empty() || uploading)
     {

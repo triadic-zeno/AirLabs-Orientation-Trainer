@@ -150,7 +150,7 @@ void AirLabs::UploadRun(const Replay& r, bool post)
     p.board = board;
     p.platform = PlatformName(plat);
     p.id = id;
-    p.name = Utf8FromWide(gameWrapper->GetPlayerName().ToWideString());
+    p.name = LbName(Utf8FromWide(gameWrapper->GetPlayerName().ToWideString()));
     p.score = r.score;
     p.replayB64 = Base64Encode(SerializeReplay(r));
     if (!post)
@@ -230,8 +230,17 @@ bool AirLabs::SavePendingLocked(PendingRun& p)
 // Posts one run. A run that can't get through (no internet, server down, too soon after the
 // last post) waits in pending/ for the next try; one the server answers for good (posted, not a
 // new best, or refused) leaves the queue.
+std::string AirLabs::LbName(const std::string& gameName) const
+{
+    std::string n = lbNameSet ? *lbNameSet : std::string();
+    while (!n.empty() && n.back() == ' ') n.pop_back();
+    while (!n.empty() && n.front() == ' ') n.erase(n.begin());
+    return n.empty() ? gameName : n;
+}
+
 void AirLabs::SendRun(PendingRun p)
 {
+    if (lbNameSet && !lbNameSet->empty()) p.name = LbName(p.name); // the name you set wins, even for runs kept from before
     std::string key;
     {
         std::lock_guard<std::mutex> lock(lbMutex);
@@ -352,12 +361,52 @@ void AirLabs::RetryPending()
     SendRun(std::move(p));
 }
 
+// Runs turned away by checks that have since been dropped (the server now only flags them):
+// queue them to go up again, once. Ones turned away for being the wrong preset stay put.
+void AirLabs::RequeueRejected()
+{
+    if (lbRequeued) return;
+    lbRequeued = true;
+    std::error_code ec;
+    const std::filesystem::path dir = DataDir() / "rejected";
+    std::vector<std::filesystem::path> runs;
+    for (std::filesystem::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))
+        if (it->path().extension() == ".alr") runs.push_back(it->path());
+    for (const auto& f : runs)
+    {
+        std::filesystem::path why = f;
+        why.replace_extension(".txt");
+        std::string reason;
+        {
+            std::ifstream in(why);
+            std::getline(in, reason);
+        }
+        const bool wrongPreset = reason.find("distance") != std::string::npos || reason.find("target size") != std::string::npos ||
+                                 reason.find("aim doesn't match") != std::string::npos || reason.find("not a preset") != std::string::npos ||
+                                 reason.find("does not apply") != std::string::npos || reason.find("bad range") != std::string::npos;
+        if (wrongPreset) continue;
+        std::ifstream in(f, std::ios::binary);
+        std::stringstream ss;
+        ss << in.rdbuf();
+        in.close();
+        Replay rp;
+        if (ParseReplay(ss.str(), rp))
+        {
+            cvarManager->log("[AirLabs] sending a run the leaderboard turned away again: " + f.filename().string());
+            UploadRun(rp, false); // kept in pending/: it goes up with the others
+        }
+        std::filesystem::remove(f, ec);
+        std::filesystem::remove(why, ec);
+    }
+}
+
 // On a timer (on the game thread): post the oldest waiting run, if there is one.
 void AirLabs::SchedulePendingRetry(float seconds)
 {
     auto alive = lbAlive;
     gameWrapper->SetTimeout([this, alive](GameWrapper*) {
         if (!alive->load()) return;
+        RequeueRejected();
         RetryPending();
         int waiting;
         {
