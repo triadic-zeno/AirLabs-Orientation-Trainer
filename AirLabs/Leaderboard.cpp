@@ -150,7 +150,7 @@ void AirLabs::UploadRun(const Replay& r, bool post)
     p.board = board;
     p.platform = PlatformName(plat);
     p.id = id;
-    p.name = LbName(Utf8FromWide(gameWrapper->GetPlayerName().ToWideString()));
+    p.name = Utf8FromWide(gameWrapper->GetPlayerName().ToWideString());
     p.score = r.score;
     p.replayB64 = Base64Encode(SerializeReplay(r));
     if (!post)
@@ -230,17 +230,8 @@ bool AirLabs::SavePendingLocked(PendingRun& p)
 // Posts one run. A run that can't get through (no internet, server down, too soon after the
 // last post) waits in pending/ for the next try; one the server answers for good (posted, not a
 // new best, or refused) leaves the queue.
-std::string AirLabs::LbName(const std::string& gameName) const
-{
-    std::string n = lbNameSet ? *lbNameSet : std::string();
-    while (!n.empty() && n.back() == ' ') n.pop_back();
-    while (!n.empty() && n.front() == ' ') n.erase(n.begin());
-    return n.empty() ? gameName : n;
-}
-
 void AirLabs::SendRun(PendingRun p)
 {
-    if (lbNameSet && !lbNameSet->empty()) p.name = LbName(p.name); // the name you set wins, even for runs kept from before
     std::string key;
     {
         std::lock_guard<std::mutex> lock(lbMutex);

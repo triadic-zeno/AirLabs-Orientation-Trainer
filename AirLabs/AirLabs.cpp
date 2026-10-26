@@ -453,7 +453,7 @@ void AirLabs::RegisterCvars()
     mapPref = mkI(0);
     hudGrid = mkB(false); blockJumpBoost = mkB(true);
     laserLength = mkF(6000.f); laserWidth = mkF(3.f); guideAccel = mkF(450.f); guideMode = mkI(0);
-    lbPost = mkB(false); lbUrl = std::make_shared<std::string>(kLeaderboardUrl); lbNameSet = std::make_shared<std::string>();
+    lbPost = mkB(false); lbUrl = std::make_shared<std::string>(kLeaderboardUrl);
 
     reg("airlabs_mode", "0", "0 = Flick, 1 = Track, 2 = Hybrid, 3 = Chase", 0.f, static_cast<float>(kModeCount - 1)).bindTo(mode);
     reg("airlabs_preset_flick", "4", "Flick preset (last = Custom)", 0.f, maxIdx(kFlick)).bindTo(presetFlick);
@@ -509,7 +509,6 @@ void AirLabs::RegisterCvars()
     reg("airlabs_lb_post", "0", "Post your preset runs to the public AirLabs leaderboard (your best per preset, with its replay, under your Rocket League name)", 0.f, 1.f).bindTo(lbPost);
     // Not saved to the config: a new version's server address always applies.
     cvarManager->registerCvar("airlabs_lb_url", kLeaderboardUrl, "AirLabs leaderboard server", true, false, 0.f, false, 0.f, false).bindTo(lbUrl);
-    cvarManager->registerCvar("airlabs_lb_name", "", "Name to show on the AirLabs leaderboard (blank = your Rocket League name)", true).bindTo(lbNameSet);
 }
 
 // ===========================================================================

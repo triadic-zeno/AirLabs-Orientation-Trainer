@@ -474,9 +474,6 @@ on boards of its own. The same boards are on the web at
   tick: the car's rotation and where the ball was, which is everything a score depends on. Anyone
   can watch any run, so a run that doesn't add up is plain to see. The server also plays each run
   back through the plugin's own rules and keeps that score with the run for reference.
-- **Your name:** runs post under your Rocket League name. Offline (without Easy Anti-Cheat) the
-  game can report a placeholder like "User-1a2b3c" instead, so the Leaderboard page has
-  **Change name** to set the name shown on the board.
 - **What's stored:** your Rocket League name, platform, your platform account id (used only to
   tell players apart; never shown), and your best run per board with its replay. The first time
   you post, the server gives this install a key (`data/AirLabs/leaderboard.txt`), so nobody else
