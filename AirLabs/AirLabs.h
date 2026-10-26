@@ -452,6 +452,7 @@ private:
     void WinAssists();
     void WinHelp();
     void WinLeaderboard();
+    void WinSettings(const DrillSettings& s, float width); // every setting, on the Play page
     void PlayFlickSettings(const DrillSettings& s, bool hybridPart);
     void PlayTrackSettings(const DrillSettings& s, bool hybridPart);
     void PlayDirections(const DrillSettings& s);

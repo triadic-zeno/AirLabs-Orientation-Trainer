@@ -883,7 +883,7 @@ void AirLabs::WinPlay()
         if (Chip("##custom", "Custom", s.custom && s.userPreset == 0, bold, 34.f, true) && !(s.custom && s.userPreset == 0))
         {
             if (s.custom) MakeCustom(); // leaving a saved preset: keep its settings as plain Custom
-            else { MakeCustom(); showCustomise = true; }
+            else MakeCustom();
         }
         if (dynSelected)
         {
@@ -993,44 +993,11 @@ void AirLabs::WinPlay()
         card.End();
     }
 
-    // ---- round: length and time per target, right on the Play page ----
-    SectionLabel(small, "ROUND");
-    {
-        const bool hasTimeout = s.mode != kTrack; // Track has no targets to time out
-        const float gap = 16.f, colW = hasTimeout ? (width - gap) * 0.5f : width;
-        auto slider = [&](const char* id, const char* title, const char* cvar, float value, float lo, float hi, const char* fmt, float w) {
-            ImGui::BeginGroup();
-            {
-                FontScope f(bold);
-                ImGui::TextUnformatted(title);
-            }
-            ImGui::PushItemWidth(w);
-            float v = value;
-            if (ImGui::SliderFloat(id, &v, lo, hi, fmt))
-            {
-                MakeCustom(); // a preset's round is fixed so scores compare: changing it makes the run Custom
-                SetCvarF(cvar, v);
-            }
-            ImGui::PopItemWidth();
-            ImGui::EndGroup();
-        };
-        slider("##roundlen", "Round length", "airlabs_run_length", s.runLength, 0.f, 600.f, s.runLength > 0.f ? "%.0f s" : "Endless", colW);
-        if (hasTimeout)
-        {
-            ImGui::SameLine(0, gap);
-            slider("##timeout", s.mode == kChase ? "Time to catch the ball" : "Time per target", "airlabs_timeout", s.timeout, 0.f, 30.f,
-                   s.timeout > 0.f ? "%.1f s" : "No limit", colW);
-        }
-        FontScope f(small);
-        ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + width);
-        ImGui::TextDisabled(hasTimeout ? "Presets: 60 s rounds, %s. A missed target costs %.0f points. Changing either makes the run Custom (save it as a preset to keep records). 0 = endless / no limit."
-                                       : "Presets: 60 s rounds. Changing it makes the run Custom (save it as a preset to keep records). 0 = endless.",
-                            s.mode == kChase ? "7.5 s to catch the ball" : "5 s per target", kMissPenalty);
-        ImGui::PopTextWrapPos();
-    }
+    // ---- every setting, on the page: round first, then where the ball spawns, then the mode's own ----
+    WinSettings(s, width);
 
     // ---- save as preset: lights up once you've changed a setting ----
-    ImGui::Dummy(ImVec2(0, 4));
+    ImGui::Dummy(ImVec2(0, 6));
     {
         const bool canSave = s.custom && s.userPreset == 0;
         ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -1039,7 +1006,7 @@ void AirLabs::WinPlay()
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4(canSave ? kCard : Rgb(16, 19, 26)));
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(canSave ? kText : kFaint));
         ImGui::PushItemWidth(width - btnW - 10.f);
-        bool enterPressed = ImGui::InputTextWithHint("##presetname", canSave ? "Name your preset (e.g. Slow reversals)" : "Change a setting below, then name and save it as your own preset",
+        bool enterPressed = ImGui::InputTextWithHint("##presetname", canSave ? "Name your preset (e.g. Slow reversals)" : "Change a setting above, then name and save it as your own preset",
                                                      saveName, sizeof(saveName), canSave ? ImGuiInputTextFlags_EnterReturnsTrue : ImGuiInputTextFlags_ReadOnly) && canSave;
         ImGui::PopItemWidth();
         ImGui::PopStyleColor(2);
@@ -1058,37 +1025,373 @@ void AirLabs::WinPlay()
             SaveCurrentAsPreset(saveName);
             saveName[0] = '\0';
         }
+        FontScope f(small);
+        ImGui::TextDisabled("Presets have fixed settings so scores compare. Changing any setting makes the run Custom; save it here to keep its own records.");
     }
+}
 
-    // ---- customise drawer ----
-    ImGui::Dummy(ImVec2(0, 2));
+// ===========================================================================
+// Settings (on the Play page)
+// ===========================================================================
+
+namespace
+{
+    // One setting: its name and a line on what it does on the left, the control on the right.
+    // Begin returns the control's width and leaves the cursor where the control goes.
+    struct SettingRow
+    {
+        ImVec2 start;
+        float width = 0.f, textH = 0.f;
+        float Begin(const char* title, const char* desc, float w, ImFont* titleFont, ImFont* descFont)
+        {
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            start = ImGui::GetCursorScreenPos();
+            width = w;
+            const float textW = w * 0.5f, ctrlW = w * 0.44f;
+            DrawText(dl, titleFont, start, kText, title);
+            const float th = SizeOf(titleFont) + 3.f;
+            float dh = 0.f;
+            if (desc && *desc)
+            {
+                DrawText(dl, descFont, ImVec2(start.x, start.y + th), kDim, desc, textW);
+                dh = TextSize(descFont, desc, textW).y;
+            }
+            textH = th + dh;
+            ImGui::SetCursorScreenPos(ImVec2(start.x + w - ctrlW, start.y));
+            ImGui::BeginGroup();
+            return ctrlW;
+        }
+        void End(bool divider = true)
+        {
+            ImGui::EndGroup();
+            const float bottom = std::max(start.y + textH, ImGui::GetItemRectMax().y);
+            const float y = bottom + (divider ? 13.f : 2.f);
+            if (divider) ImGui::GetWindowDrawList()->AddLine(ImVec2(start.x, y), ImVec2(start.x + width, y), Rgb(37, 44, 58, 150));
+            ImGui::SetCursorScreenPos(ImVec2(start.x, y + (divider ? 13.f : 0.f)));
+            ImGui::Dummy(ImVec2(0, 0));
+        }
+    };
+
+    // An on/off switch.
+    bool OnOff(const char* id, bool on, ImFont* font)
     {
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        ImVec2 p = ImGui::GetCursorScreenPos();
-        const float h = 50.f;
-        bool pressed = ImGui::InvisibleButton("##customise", ImVec2(width, h));
-        bool hover = ImGui::IsItemHovered();
-        if (pressed) showCustomise = !showCustomise;
-        dl->AddRectFilled(p, ImVec2(p.x + width, p.y + h), hover ? kCardHi : kCard, 10.f);
-        dl->AddRect(p, ImVec2(p.x + width, p.y + h), kBorder, 10.f);
-        ImVec2 a(p.x + 22.f, p.y + h * 0.5f);
-        if (showCustomise) dl->AddTriangleFilled(ImVec2(a.x - 6, a.y - 3), ImVec2(a.x + 6, a.y - 3), ImVec2(a.x, a.y + 4), kDim);
-        else               dl->AddTriangleFilled(ImVec2(a.x - 3, a.y - 6), ImVec2(a.x - 3, a.y + 6), ImVec2(a.x + 4, a.y), kDim);
-        DrawText(dl, bold, ImVec2(p.x + 40.f, p.y + (h - SizeOf(bold)) * 0.5f), kText, "Customise");
-        const char* hint = "Fine-tune every setting. Changing anything makes the run Custom; save it above to keep records.";
-        DrawText(dl, small, ImVec2(p.x + 40.f + TextSize(bold, "Customise").x + 14.f, p.y + (h - SizeOf(small)) * 0.5f), kFaint, hint);
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float w = 50.f, h = 28.f;
+        const bool pressed = ImGui::InvisibleButton(id, ImVec2(w, h));
+        const bool hover = ImGui::IsItemHovered();
+        dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), on ? (hover ? kAccentHi : kAccent) : (hover ? kCardHi : Rgb(31, 38, 50)), h * 0.5f);
+        if (!on) dl->AddRect(p, ImVec2(p.x + w, p.y + h), kBorder, h * 0.5f);
+        const float r = h * 0.5f - 4.f;
+        dl->AddCircleFilled(ImVec2(on ? p.x + w - h * 0.5f : p.x + h * 0.5f, p.y + h * 0.5f), r, Rgb(255, 255, 255), 24);
+        ImGui::SameLine(0, 10);
+        ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, p.y + (h - SizeOf(font)) * 0.5f));
+        FontScope f(font);
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(on ? kText : kDim), on ? "On" : "Off");
+        return pressed;
     }
-    if (showCustomise)
+
+    // A slider: a thin track filled up to the value, a round knob, and the value in a pill on the
+    // right. Click or drag anywhere on the track.
+    bool TrackSlider(const char* id, float* v, float lo, float hi, const std::string& label, float w, ImFont* font)
     {
-        ImGui::Dummy(ImVec2(0, 2));
-        ImGui::Indent(8.f);
-        ImGui::PushItemWidth(std::min(340.f, width * 0.45f));
-        hideRoundSettings = true; // round length and time per target are in ROUND above
-        PlaySettingsBody(s, false);
-        hideRoundSettings = false;
-        ImGui::PopItemWidth();
-        ImGui::Unindent(8.f);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float pillW = std::max(78.f, TextSize(font, label.c_str()).x + 22.f), gap = 12.f, h = 30.f;
+        const float trackW = std::max(40.f, w - pillW - gap);
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::InvisibleButton(id, ImVec2(trackW, h));
+        const bool active = ImGui::IsItemActive(), hover = ImGui::IsItemHovered();
+        bool changed = false;
+        if (active)
+        {
+            const float t = std::clamp((ImGui::GetIO().MousePos.x - p.x) / trackW, 0.f, 1.f);
+            const float nv = lo + t * (hi - lo);
+            if (nv != *v) { *v = nv; changed = true; }
+        }
+        const float t = hi > lo ? std::clamp((*v - lo) / (hi - lo), 0.f, 1.f) : 0.f;
+        const float cy = p.y + h * 0.5f, x = p.x + t * trackW;
+        dl->AddRectFilled(ImVec2(p.x, cy - 3.f), ImVec2(p.x + trackW, cy + 3.f), Rgb(44, 52, 68), 3.f);
+        dl->AddRectFilled(ImVec2(p.x, cy - 3.f), ImVec2(x, cy + 3.f), kAccent, 3.f);
+        dl->AddCircleFilled(ImVec2(x, cy), active ? 10.f : 9.f, (hover || active) ? Rgb(255, 255, 255) : Rgb(230, 234, 241), 24);
+        dl->AddCircle(ImVec2(x, cy), active ? 10.f : 9.f, kAccent, 24, 2.f);
+        const ImVec2 a(p.x + trackW + gap, p.y + 1.f), b(a.x + pillW, p.y + h - 1.f);
+        dl->AddRectFilled(a, b, Rgb(31, 38, 50), 7.f);
+        const ImVec2 ts = TextSize(font, label.c_str());
+        DrawText(dl, font, ImVec2(a.x + (pillW - ts.x) * 0.5f, a.y + (b.y - a.y - ts.y) * 0.5f), kText, label.c_str());
+        ImGui::SetCursorScreenPos(p);
+        ImGui::Dummy(ImVec2(w, h));
+        return changed;
     }
+    std::string Label(const char* fmt, float v) { char b[64]; std::snprintf(b, sizeof b, fmt, v); return b; }
+    bool SliderF(const char* id, float* v, float lo, float hi, const char* fmt, float w, ImFont* font)
+    {
+        float x = *v;
+        const bool changed = TrackSlider(id, &x, lo, hi, Label(fmt, x), w, font);
+        if (changed) *v = x;
+        return changed;
+    }
+    bool SliderI(const char* id, int* v, int lo, int hi, const char* fmt, float w, ImFont* font)
+    {
+        float x = static_cast<float>(*v);
+        char b[64];
+        std::snprintf(b, sizeof b, fmt, *v);
+        const bool changed = TrackSlider(id, &x, static_cast<float>(lo), static_cast<float>(hi), b, w, font);
+        const int nv = static_cast<int>(std::lround(x));
+        if (changed && nv != *v) { *v = nv; return true; }
+        return false;
+    }
+    // Two knobs on one track (a low and a high end): drag whichever is nearer.
+    bool RangeSlider(const char* id, float* lo, float* hi, float min, float max, const std::string& label, float w, ImFont* font, int& dragging)
+    {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float pillW = std::max(78.f, TextSize(font, label.c_str()).x + 22.f), gap = 12.f, h = 30.f;
+        const float trackW = std::max(40.f, w - pillW - gap);
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::InvisibleButton(id, ImVec2(trackW, h));
+        const bool active = ImGui::IsItemActive(), hover = ImGui::IsItemHovered();
+        auto tOf = [&](float v) { return std::clamp((v - min) / (max - min), 0.f, 1.f); };
+        bool changed = false;
+        if (active)
+        {
+            const float t = std::clamp((ImGui::GetIO().MousePos.x - p.x) / trackW, 0.f, 1.f);
+            const float nv = min + t * (max - min);
+            if (ImGui::IsItemActivated()) dragging = std::fabs(t - tOf(*lo)) <= std::fabs(t - tOf(*hi)) ? 0 : 1;
+            float& target = dragging == 0 ? *lo : *hi;
+            const float bound = dragging == 0 ? std::min(nv, *hi) : std::max(nv, *lo);
+            if (bound != target) { target = bound; changed = true; }
+        }
+        const float cy = p.y + h * 0.5f, x0 = p.x + tOf(*lo) * trackW, x1 = p.x + tOf(*hi) * trackW;
+        dl->AddRectFilled(ImVec2(p.x, cy - 3.f), ImVec2(p.x + trackW, cy + 3.f), Rgb(44, 52, 68), 3.f);
+        dl->AddRectFilled(ImVec2(x0, cy - 3.f), ImVec2(x1, cy + 3.f), kAccent, 3.f);
+        for (float x : { x0, x1 })
+        {
+            dl->AddCircleFilled(ImVec2(x, cy), 9.f, (hover || active) ? Rgb(255, 255, 255) : Rgb(230, 234, 241), 24);
+            dl->AddCircle(ImVec2(x, cy), 9.f, kAccent, 24, 2.f);
+        }
+        const ImVec2 a(p.x + trackW + gap, p.y + 1.f), b(a.x + pillW, p.y + h - 1.f);
+        dl->AddRectFilled(a, b, Rgb(31, 38, 50), 7.f);
+        const ImVec2 ts = TextSize(font, label.c_str());
+        DrawText(dl, font, ImVec2(a.x + (pillW - ts.x) * 0.5f, a.y + (b.y - a.y - ts.y) * 0.5f), kText, label.c_str());
+        ImGui::SetCursorScreenPos(p);
+        ImGui::Dummy(ImVec2(w, h));
+        return changed;
+    }
+}
+
+void AirLabs::WinSettings(const DrillSettings& s, float width)
+{
+    ImFont* small = uiFonts[kFontSmall];
+    ImFont* bold = uiFonts[kFontBold];
+    // Every change goes through here: the run becomes Custom (presets are fixed so scores compare).
+    auto setF = [this](const char* cvar, float v) { MakeCustom(); SetCvarF(cvar, v); };
+    auto setI = [this](const char* cvar, int v) { MakeCustom(); SetCvarI(cvar, v); };
+    SettingRow row;
+
+    auto sliderRow = [&](const char* id, const char* title, const char* desc, const char* cvar, float value, float lo, float hi, const char* fmt, bool divider = true) {
+        const float w = row.Begin(title, desc, width - 36.f, bold, small);
+        float v = value;
+        if (SliderF(id, &v, lo, hi, fmt, w, bold)) setF(cvar, v);
+        row.End(divider);
+    };
+    auto msRow = [&](const char* id, const char* title, const char* desc, const char* cvar, float seconds, int lo, int hi, bool divider = true) {
+        const float w = row.Begin(title, desc, width - 36.f, bold, small);
+        int v = static_cast<int>(std::lround(seconds * 1000.f));
+        if (SliderI(id, &v, lo, hi, "%d ms", w, bold)) setI(cvar, v);
+        row.End(divider);
+    };
+    auto toggleRow = [&](const char* id, const char* title, const char* desc, const char* cvar, bool on, bool divider = true) {
+        row.Begin(title, desc, width - 36.f, bold, small);
+        if (OnOff(id, on, small)) setI(cvar, on ? 0 : 1);
+        row.End(divider);
+    };
+    auto choiceRow = [&](const char* id, const char* title, const char* desc, const char* cvar, int value, const char* const* options, int count, bool divider = true) {
+        const float w = row.Begin(title, desc, width - 36.f, bold, small);
+        const int c = Segmented(id, options, nullptr, count, value, w, 36.f, bold, nullptr);
+        if (c >= 0 && c != value) setI(cvar, c);
+        row.End(divider);
+    };
+
+    // ---- ROUND: how long the round is, and how long each ball waits ----
+    SectionLabel(small, "ROUND");
+    {
+        Card c;
+        c.Begin(width, 18.f);
+        const bool flicks = s.mode == kFlick || s.mode == kHybrid;
+        sliderRow("##runlen", "Round length", "How long a round lasts. Presets: 60 s. 0 = endless (until you stop).",
+                  "airlabs_run_length", s.runLength, 0.f, 600.f, s.runLength > 0.f ? "%.0f s" : "Endless", s.mode != kTrack);
+        if (s.mode == kChase)
+            sliderRow("##timeout", "Time to catch the ball", "How long a stopped ball waits for you before it counts as a miss and dashes off. Presets: 7.5 s. 0 = no limit.",
+                      "airlabs_timeout", s.timeout, 0.f, 30.f, s.timeout > 0.f ? "%.1f s" : "No limit", false);
+        else if (flicks)
+        {
+            sliderRow("##timeout", "Time per target", "How long you get to reach each ball. Run out and it's a miss (-500 points). Presets: 5 s. 0 = no limit.",
+                      "airlabs_timeout", s.timeout, 0.f, 30.f, s.timeout > 0.f ? "%.1f s" : "No limit");
+            msRow("##delay", "Delay between targets", "The pause before the next ball spawns. Presets: 20 ms.",
+                  "airlabs_next_delay", s.delaySec, 0, 3000, false);
+        }
+        c.End();
+    }
+
+    // ---- BALL SPAWN: height, direction from your car, distance ----
+    SectionLabel(small, "BALL SPAWN");
+    {
+        Card c;
+        c.Begin(width, 18.f);
+        // Height
+        {
+            const float w = row.Begin("Ball spawn height", "Where the ball can be, measured from the horizon (the ground, not your car): above you, level, below, or anywhere.",
+                                      width - 36.f, bold, small);
+            struct HeightChoice { const char* label; Band band; };
+            static const HeightChoice heights[] = { { "Any", kBandAny }, { "Above", kBandAbove }, { "Level", kBandLevel }, { "Below", kBandBelow } };
+            static const char* labels[] = { "Any", "Above", "Level", "Below" };
+            int sel = -1;
+            for (int i = 0; i < 4; ++i)
+                if (std::fabs(s.band.minDeg - heights[i].band.minDeg) < 0.5f && std::fabs(s.band.maxDeg - heights[i].band.maxDeg) < 0.5f) sel = i;
+            const int clicked = Segmented("##height", labels, nullptr, 4, sel, w, 36.f, bold, nullptr);
+            if (clicked >= 0 && clicked != sel)
+            {
+                MakeCustom();
+                SetCvarF("airlabs_height_min", heights[clicked].band.minDeg);
+                SetCvarF("airlabs_height_max", heights[clicked].band.maxDeg);
+            }
+            ImGui::Dummy(ImVec2(0, 2));
+            float lo = std::round(s.band.minDeg), hi = std::round(s.band.maxDeg);
+            static int which = 0;
+            const std::string label = Label("%.0f\xC2\xB0", lo) + Label(" to %.0f\xC2\xB0", hi);
+            if (RangeSlider("##height_range", &lo, &hi, -90.f, 90.f, label, w, bold, which))
+            {
+                MakeCustom();
+                SetCvarF("airlabs_height_min", std::round(lo));
+                SetCvarF("airlabs_height_max", std::round(hi));
+            }
+            row.End();
+        }
+        // Direction (Flick, Track, Hybrid: Chase picks a random direction for every dash)
+        if (s.mode != kChase)
+        {
+            const char* desc = s.mode == kFlick ? "Where balls can spawn, as seen from the driver's seat. Train your weak side. Nothing picked = anywhere."
+                             : s.mode == kTrack ? "Which way the ball tends to head, as seen from the driver's seat. Nothing picked = any way."
+                                                : "Where flick balls spawn and which way they head after, as seen from the driver's seat. Nothing picked = anywhere.";
+            const float w = row.Begin("Ball spawn direction", desc, width - 36.f, bold, small);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const unsigned int stored = s.custom ? (static_cast<unsigned int>(*dirMask) & kAllRegions) : kAllRegions;
+            unsigned int mask = stored;
+            static const int grid[3][3] = { { kUpLeft, kUp, kUpRight }, { kLeft, kBehind, kRight }, { kDownLeft, kDown, kDownRight } };
+            static const char* names[kRegionCount] = { "Right", "Up-right", "Up", "Up-left", "Left", "Down-left", "Down", "Down-right", "Behind" };
+            const float gap = 6.f, cw = (w - 2.f * gap) / 3.f, ch = 34.f;
+            const ImVec2 o = ImGui::GetCursorScreenPos();
+            for (int r = 0; r < 3; ++r)
+                for (int k = 0; k < 3; ++k)
+                {
+                    const int region = grid[r][k];
+                    const bool usable = !(s.mode == kTrack && region == kBehind); // the moving ball can't head "behind"
+                    const bool on = (mask >> region) & 1u;
+                    const ImVec2 a(o.x + k * (cw + gap), o.y + r * (ch + gap)), b(a.x + cw, a.y + ch);
+                    ImGui::SetCursorScreenPos(a);
+                    ImGui::PushID(region);
+                    const bool pressed = ImGui::InvisibleButton("##dir", ImVec2(cw, ch)) && usable;
+                    const bool hover = usable && ImGui::IsItemHovered();
+                    ImGui::PopID();
+                    dl->AddRectFilled(a, b, !usable ? Rgb(16, 19, 26) : on ? (hover ? kAccentHi : kAccent) : (hover ? kCardHi : Rgb(31, 38, 50)), 7.f);
+                    if (!on || !usable) dl->AddRect(a, b, kBorder, 7.f);
+                    const ImVec2 ts = TextSize(small, names[region]);
+                    DrawText(dl, small, ImVec2(a.x + (cw - ts.x) * 0.5f, a.y + (ch - ts.y) * 0.5f), !usable ? kFaint : on ? Rgb(255, 255, 255) : kDim, names[region]);
+                    if (pressed) mask ^= 1u << region;
+                }
+            ImGui::SetCursorScreenPos(ImVec2(o.x, o.y + 3.f * ch + 2.f * gap + 6.f));
+            if (LinkButton("##dirall", "All", small, kAccentHi)) mask = kAllRegions;
+            ImGui::SameLine(0, 16);
+            if (LinkButton("##dirnone", "Clear", small, kAccentHi)) mask = 0;
+            if (mask != stored) setI("airlabs_dirs", static_cast<int>(mask));
+            row.End();
+        }
+        const std::string distDesc = "How far the ball is from your car. The Range buttons above set it for presets (400, 600, 900 uu). The target is always the ball itself: here it's " +
+                                     Label("a %.1f\xC2\xB0 target.", s.target);
+        sliderRow("##dist", "Ball distance", distDesc.c_str(), "airlabs_distance", s.distance, 300.f, kMaxBallDistance, "%.0f uu", false);
+        c.End();
+    }
+
+    // ---- the mode's own settings ----
+    static const char* sectionNames[kModeCount] = { "FLICK", "TRACK", "HYBRID", "CHASE" };
+    SectionLabel(small, sectionNames[s.mode]);
+    Card c;
+    c.Begin(width, 18.f);
+    auto flickRows = [&](bool hybridPart) {
+        sliderRow("##minturn", "Smallest turn", "The least you'll have to turn to reach a new ball.", "airlabs_min_angle", s.minTurn, 0.f, 180.f, "%.0f\xC2\xB0");
+        sliderRow("##maxturn", "Biggest turn", "The most you'll have to turn. 180 means balls right behind you.", "airlabs_max_angle", s.maxTurn, 0.f, 180.f, "%.0f\xC2\xB0");
+        msRow("##hold", "Hold to confirm", "How long you stay on a ball before it counts, so you can't just swipe past it. Presets: 200 ms.",
+              "airlabs_hold_ms", s.holdSec, 0, 2000);
+        if (!hybridPart)
+        {
+            static const char* aims[] = { "Nose", "Wheels" };
+            choiceRow("##aim", "Aim with", "Nose: point the front of your car at the ball. Wheels: point the bottom of your car at it, the setup for a flip reset.",
+                      "airlabs_aim", s.aim, aims, 2);
+        }
+        toggleRow("##settle", "Must stop on target", "A ball only counts once your car has stopped turning on it, not while swinging through. Trains clean braking.",
+                  "airlabs_settle", s.settle);
+        if (s.settle)
+            sliderRow("##settlerate", "Counts as stopped below", "How slowly you need to be turning to count as stopped. Lower is stricter.",
+                      "airlabs_settle_rate", s.settleRate, 5.f, 120.f, "%.0f\xC2\xB0/s");
+        toggleRow("##weak", "Weak-spot mode", "More balls in the directions you're slowest at (see Stats > Directions).",
+                  "airlabs_weak_spot", s.weakSpot, hybridPart); // last row in Flick: no divider
+    };
+    auto speedRows = [&](bool hybridPart) {
+        static const char* modes[] = { "Steady", "Changing" };
+        choiceRow("##speedmode", "Ball speed", "Steady: one speed all the time. Changing: it keeps speeding up and slowing down, so you adjust how far you push the stick.",
+                  "airlabs_dynamic", s.path.dynamic ? 1 : 0, modes, 2);
+        if (!s.path.dynamic)
+        {
+            std::string d = Fmt("How fast the ball moves around you. This needs about %.0f%% stick", 100.f * StickForSpin(s.path.speed, false)) +
+                            Fmt(" (%.0f%% of your car's top spin speed).", PctOfMaxSpin(s.path.speed));
+            sliderRow("##speed", "Speed", d.c_str(), "airlabs_track_speed", s.path.speed, 5.f, kMaxBallSpeed, "%.0f\xC2\xB0/s");
+            if (!hybridPart)
+                sliderRow("##turnevery", "New direction every", "How often the ball turns onto a new path.", "airlabs_track_turn", s.path.changeEvery, 0.3f, 10.f, "%.1f s");
+        }
+        else
+        {
+            sliderRow("##vmin", "Slowest speed", "The slowest the ball gets.", "airlabs_dyn_min", s.path.vMin, 5.f, kMaxBallSpeed, "%.0f\xC2\xB0/s");
+            sliderRow("##vmax", "Fastest speed", "The fastest it gets. It turns more often when slow, less often when fast.", "airlabs_dyn_max", s.path.vMax, 5.f, kMaxBallSpeed, "%.0f\xC2\xB0/s");
+        }
+        if (!hybridPart)
+            sliderRow("##maxturnchg", "Biggest direction change", "How sharply the ball can turn: small means gentle curves, big means sharp corners.",
+                      "airlabs_max_turn", s.path.maxTurn, 0.f, 180.f, "%.0f\xC2\xB0", false);
+    };
+    if (s.mode == kFlick) flickRows(false);
+    else if (s.mode == kTrack) speedRows(false);
+    else if (s.mode == kHybrid)
+    {
+        {
+            FontScope f(small);
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kFaint), "THE FLICK");
+        }
+        ImGui::Dummy(ImVec2(0, 2));
+        flickRows(true);
+        {
+            FontScope f(small);
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kFaint), "THE TRACK");
+        }
+        ImGui::Dummy(ImVec2(0, 2));
+        sliderRow("##hybtrack", "Track time", "How long you follow the ball after you flick onto it. Presets: 4 s.", "airlabs_hybrid_track", s.hybridTrack, 1.f, 15.f, "%.1f s");
+        speedRows(true);
+        FontScope f(small);
+        ImGui::TextDisabled("The ball holds the direction it takes off in for the whole track.");
+    }
+    else
+    {
+        static const char* modes[] = { "Steady", "Random" };
+        choiceRow("##dashmode", "Dash speed", "Steady: every dash at the same speed. Random: each dash picks a new speed, so you read it and commit.",
+                  "airlabs_dynamic", s.path.dynamic ? 1 : 0, modes, 2);
+        if (!s.path.dynamic)
+            sliderRow("##dashspeed", "Speed", "How fast the ball dashes across the sky.", "airlabs_track_speed", s.path.speed, 5.f, kMaxBallSpeed, "%.0f\xC2\xB0/s");
+        else
+        {
+            sliderRow("##dashmin", "Slowest dash", "The slowest a dash can be.", "airlabs_dyn_min", s.path.vMin, 5.f, kMaxBallSpeed, "%.0f\xC2\xB0/s");
+            sliderRow("##dashmax", "Fastest dash", "The fastest a dash can be.", "airlabs_dyn_max", s.path.vMax, 5.f, kMaxBallSpeed, "%.0f\xC2\xB0/s");
+        }
+        sliderRow("##dashshort", "Shortest dash", "How long the ball moves before it stops, at least.", "airlabs_chase_min", s.chaseMin, 0.2f, 5.f, "%.1f s");
+        sliderRow("##dashlong", "Longest dash", "How long it moves, at most. Each dash picks a time in between.", "airlabs_chase_max", s.chaseMax, 0.2f, 5.f, "%.1f s", false);
+    }
+    c.End();
 }
 
 // ===========================================================================
