@@ -1,0 +1,8 @@
+.vs/
+build/
+plugins/
+x64/
+*.user
+*.aps
+submission/
+__pycache__/
