@@ -26,7 +26,7 @@ const rewind = (env, id) => env.DB.raw.prepare('UPDATE players SET last_upload =
 
 test('first post: accepted, ranked, with a key for this install', async () => {
   const env = fresh();
-  const r = await post(env, '7656119800001', 'Daniel', fx('0-4-1-0'));
+  const r = await post(env, '7656119800001', 'Pilot', fx('0-4-1-0'));
   assert.equal(r.status, 200, r.text);
   assert.equal(r.json.ok, true);
   assert.equal(r.json.best, true);
@@ -36,7 +36,7 @@ test('first post: accepted, ranked, with a key for this install', async () => {
   assert.match(r.json.pid, /^[0-9a-f]{16}$/);
   const board = await call(env, 'GET', '/api/boards/0-4-1-0');
   assert.equal(board.json.entries.length, 1);
-  assert.equal(board.json.entries[0].name, 'Daniel');
+  assert.equal(board.json.entries[0].name, 'Pilot');
   assert.equal(board.json.title, 'Flick Mixed · Medium');
   // the replay comes back byte for byte
   const rp = await call(env, 'GET', `/api/replays/${r.json.run}`);
