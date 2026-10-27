@@ -453,7 +453,7 @@ void AirLabs::RegisterCvars()
     };
     auto maxIdx = [](int m) { return static_cast<float>(PresetCount(m)); };
 
-    mode = mkI(0);
+    mode = mkI(kTrack); // new players start on Track Control, Medium range: the best place to start
     presetFlick = mkI(4); presetTrack = mkI(1); presetHybrid = mkI(0); presetChase = mkI(1);
     baseFlick = mkI(4); baseTrack = mkI(1); baseHybrid = mkI(0); baseChase = mkI(1); rangeSel = mkI(kMedium);
     chaseMin = mkF(kChaseMoveMin); chaseMax = mkF(kChaseMoveMax);
@@ -472,7 +472,7 @@ void AirLabs::RegisterCvars()
     lbPost = mkB(true); lbUrl = std::make_shared<std::string>(kLeaderboardUrl);
     showTips = mkB(true);
 
-    reg("airlabs_mode", "0", "0 = Flick, 1 = Track, 2 = Hybrid, 3 = Chase", 0.f, static_cast<float>(kModeCount - 1)).bindTo(mode);
+    reg("airlabs_mode", "1", "0 = Flick, 1 = Track (default), 2 = Hybrid, 3 = Chase", 0.f, static_cast<float>(kModeCount - 1)).bindTo(mode);
     reg("airlabs_preset_flick", "4", "Flick preset (last = Custom)", 0.f, maxIdx(kFlick)).bindTo(presetFlick);
     reg("airlabs_preset_track", "1", "Track preset (last = Custom)", 0.f, maxIdx(kTrack)).bindTo(presetTrack);
     reg("airlabs_preset_hybrid", "0", "Hybrid preset (last = Custom)", 0.f, maxIdx(kHybrid)).bindTo(presetHybrid);
