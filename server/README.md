@@ -27,10 +27,16 @@ g++ -std=c++20 -O1 -IAirLabs tools/dump_core.cpp -o dump_core && ./dump_core > s
 
 | | |
 |---|---|
-| `POST /api/runs` | `{"player": {"platform", "id", "name"}, "key", "replay": "<base64 ALR1>"}`. The first post for an account returns a `key`; later posts must send it. |
+| `POST /api/runs` | `{"player": {"platform", "id", "name"}, "key", "ranks", "replay": "<base64 ALR1>"}`. The first post for an account returns a `key`; later posts must send it. |
+| `POST /api/bests` | `{"player", "key", "ranks", "version", "bests": [{"board", "score", "targets", "misses", "onPct", "date"}]}`: a player's saved best on each board, without replays (runs from before the leaderboard). Each install sends it once. Scores above a board's ceiling (60,000 on Track and Chase) are ignored. |
 | `GET /api/boards` | Every board with its player count and top score |
-| `GET /api/boards/:board` | One board, best first (`?limit=` up to 200, `?me=<public id>` adds your place). A board is `mode-preset-range-noroll`, e.g. `0-4-1-0` = Flick Mixed, Medium. |
+| `GET /api/boards/:board` | One board, best first (`?limit=` up to 200, `?me=<public id>` adds your place). A board is `mode-preset-range-noroll`, e.g. `0-4-1-0` = Flick Mixed, Medium. Each entry has the player's Rocket League ranks and whether the run has a replay. |
 | `GET /api/replays/:run` | The replay of a run that is someone's current best |
+| `GET /api/version` | `latest` (the newest AirLabs on bakkesplugins) and `plugin` (its bakkesplugins ID, 904). The plugin shows an Update button when `latest` is newer than itself. **Bump `LATEST_VERSION` in `src/index.js` once a release is live on bakkesplugins**, not before: updating installs whatever bakkesplugins has. |
+
+`ranks` is `"tier.div,tier.div,tier.div"` for 1v1, 2v2, 3v3 as the player's game reports them
+(tier 0 = Unranked, 1 = Bronze I .. 22 = Supersonic Legend; division 0-3), with `-` for a
+playlist the game didn't report. A playlist that isn't reported keeps its last known rank.
 
 Add `?format=text` for the plugin's format: one `key value` per line, table rows as
 `row` lines with tab-separated fields. Everything else is JSON.

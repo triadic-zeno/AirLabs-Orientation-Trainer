@@ -50,11 +50,19 @@ export const PAGE = `<!doctype html>
   .name { font-weight: 600; }
   .plat { color: var(--faint); font-size: 12px; margin-left: 8px; }
   .tier { display: inline-block; min-width: 40px; text-align: center; font-size: 12px; font-weight: 700; padding: 2px 7px; border-radius: 5px; color: #fff; }
+  .ranks { white-space: nowrap; }
+  .ranks .tier { min-width: 34px; padding: 2px 5px; margin-right: 4px; }
+  .tier.none { background: transparent; color: var(--faint); border: 1px solid var(--border); font-weight: 500; }
+  .tier.unr { background: #2a303d; color: var(--dim); }
   .detail, .date { color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; }
   .empty { padding: 36px 18px; text-align: center; color: var(--dim); }
   footer { margin-top: 22px; color: var(--faint); font-size: 13px; }
   footer a { color: var(--accent-hi); text-decoration: none; }
-  @media (max-width: 640px) { .hide-sm { display: none; } td, th { padding-left: 12px; padding-right: 12px; } .sub { margin-left: 0; } }
+  #board { overflow-x: auto; }
+  @media (max-width: 640px) {
+    .hide-sm, .plat { display: none; } td, th { padding-left: 8px; padding-right: 8px; } .sub { margin-left: 0; }
+    td.pos { width: 30px; } .ranks .tier { min-width: 28px; padding: 1px 3px; margin-right: 2px; font-size: 11px; }
+  }
 </style>
 </head>
 <body>
@@ -63,7 +71,7 @@ export const PAGE = `<!doctype html>
     <svg class="logo" viewBox="0 0 34 34" aria-hidden="true"><circle cx="17" cy="17" r="13" fill="none" stroke="#3b82f6" stroke-width="2.5"/><circle cx="17" cy="17" r="6" fill="none" stroke="#5694f8" stroke-width="2"/><circle cx="17" cy="17" r="2.2" fill="#fff"/></svg>
     <h1>AirLabs Leaderboard</h1>
   </header>
-  <p class="sub">Everyone's best one-minute run on every AirLabs preset. Every run comes with its replay, so you can watch any of them in the game.</p>
+  <p class="sub">Everyone's best one-minute run on every AirLabs preset, with their Rocket League ranks in 1s, 2s and 3s. Runs posted from the game come with their replay, so you can watch them there.</p>
   <p class="tip"><b>New to AirLabs? Start with Track.</b> Aerials are about holding your nose on a moving ball while you fly, and Track trains exactly that. Begin on Control, and move up once you're on the ball about 75% of the time.</p>
 
   <div class="bar">
@@ -86,6 +94,16 @@ export const PAGE = `<!doctype html>
 const RANK_COLORS = ['#b07a4a', '#a9b4c2', '#e8b931', '#3fc1c9', '#4f8df5', '#9b59f5', '#e5484d', '#f0e8cd', '#ffaa28'];
 const DARK_TEXT = new Set([0, 1, 2, 3, 7, 8]);
 const rankOf = (t) => t < 21 ? Math.floor(t / 3) : t === 21 ? 7 : 8;
+const RL_NAMES = ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond', 'Champion', 'Grand Champion'];
+// A player's real Rocket League rank in one playlist: {tier 0-22, div 0-3}, or null if not known.
+function rlPill(r, playlist) {
+  if (!r) return el('span', { class: 'tier none', title: playlist + ': not known' }, '-');
+  if (r.tier === 0) return el('span', { class: 'tier unr', title: playlist + ': Unranked' }, 'UNR');
+  const t = r.tier - 1, rk = rankOf(t);
+  const name = t >= 21 ? 'Supersonic Legend' : RL_NAMES[rk] + ' ' + ['I', 'II', 'III'][t % 3];
+  return el('span', { class: 'tier', title: playlist + ': ' + name + (t >= 21 ? '' : ', Division ' + ['I', 'II', 'III', 'IV'][r.div]),
+    style: 'background:' + RANK_COLORS[rk] + ';color:' + (DARK_TEXT.has(rk) ? '#14161c' : '#fff') }, meta.tiers[t]);
+}
 let meta = null;
 const sel = { mode: 0, preset: 4, range: 1, noRoll: false };
 
@@ -133,22 +151,23 @@ async function go(push = true) {
     const r = await (await fetch('/api/boards/' + k + '?limit=100')).json();
     if (k !== key()) return;
     document.getElementById('title').textContent = r.title;
-    document.getElementById('count').textContent = r.total ? r.total + (r.total === 1 ? ' player' : ' players') : '';
+    document.getElementById('count').textContent = [r.total ? r.total + (r.total === 1 ? ' player' : ' players') : '',
+      r.max ? 'max ' + r.max.toLocaleString('en-US') : ''].filter(Boolean).join(' \u00b7 ');
     if (!r.entries || !r.entries.length) {
       board.replaceChildren(el('div', { class: 'empty' }, 'No runs on this board yet. Play it in AirLabs and the top spot is yours.'));
       return;
     }
     const tracky = sel.mode === 1 || sel.mode === 3;
-    const head = el('tr', {}, el('th', {}, '#'), el('th', {}, 'Player'), el('th', {}, 'Rank'),
+    const anyRank = r.entries.some((e) => (e.ranks || []).some(Boolean)); // ranks come from AirLabs 2.8.0 on
+    const head = el('tr', {}, el('th', {}, '#'), el('th', {}, 'Player'), anyRank ? el('th', { title: 'Rocket League ranks: 1v1, 2v2, 3v3' }, '1s \u00b7 2s \u00b7 3s') : '',
       el('th', { class: 'hide-sm' }, tracky ? 'On the ball' : 'Targets'), el('th', { class: 'hide-sm' }, 'Date'), el('th', { class: 'score' }, 'Score'));
     const rows = r.entries.map((e) => {
-      const rk = rankOf(e.tier);
-      const pill = el('span', { class: 'tier', style: 'background:' + RANK_COLORS[rk] + ';color:' + (DARK_TEXT.has(rk) ? '#14161c' : '#fff') }, meta.tiers[e.tier]);
+      const ranks = el('td', { class: 'ranks' }, ...['1v1', '2v2', '3v3'].map((pl, i) => rlPill((e.ranks || [])[i], pl)));
       const detail = tracky ? (e.onPct != null ? e.onPct.toFixed(1) + '%' : '') : (e.targets + ' hit' + (e.misses ? ', ' + e.misses + ' missed' : ''));
       return el('tr', { class: e.pos === 1 ? 'top1' : '' },
         el('td', { class: 'pos' }, String(e.pos)),
         el('td', {}, el('span', { class: 'name' }, e.name), el('span', { class: 'plat' }, e.platform)),
-        el('td', {}, pill),
+        anyRank ? ranks : '',
         el('td', { class: 'detail hide-sm' }, detail),
         el('td', { class: 'date hide-sm' }, e.date),
         el('td', { class: 'score' }, e.score.toLocaleString('en-US')));

@@ -184,3 +184,104 @@ test('names are cleaned up', () => {
   assert.equal([...cleanName('x'.repeat(50))].length, 32);
   assert.equal(cleanName('Zoë 🚀'), 'Zoë 🚀');
 });
+
+// ---- 2.8.0: real Rocket League ranks, saved bests without replays, the latest version ----
+const v28 = (bytes) => { const b = new Uint8Array(bytes); b.set(new TextEncoder().encode('2.8.0\0\0\0'), 52); return b; };
+const rewindEpic = (env, id) => env.DB.raw.prepare('UPDATE players SET last_upload = last_upload - 100 WHERE id = ?').run('Epic:' + id);
+const bests = (env, id, list, key, ranks, ip) => call(env, 'POST', '/api/bests',
+  { player: { platform: 'Epic', id, name: 'Saver' }, key, ranks, version: '2.8.0', bests: list }, ip);
+
+test('ranks go up with a run and come back on the board (JSON and plugin text)', async () => {
+  const env = fresh();
+  const r = await call(env, 'POST', '/api/runs', { player: { platform: 'Steam', id: 'id-rk1', name: 'Ranked' }, ranks: '15.2,-,19.0', replay: toBase64(v28(fx('0-4-1-0'))) });
+  assert.equal(r.status, 200, r.text);
+  const e = (await call(env, 'GET', '/api/boards/0-4-1-0')).json.entries[0];
+  assert.deepEqual(e.ranks, [{ tier: 15, div: 2 }, null, { tier: 19, div: 0 }]);
+  assert.equal(e.replay, true);
+  const t = await call(env, 'GET', '/api/boards/0-4-1-0?format=text');
+  const row = /^row (.*)$/m.exec(t.text)[1].split('\t');
+  assert.equal(row.length, 11);
+  assert.deepEqual(row.slice(7), ['1', '15.2', '-', '19.0']);
+  // a later upload that only knows 2v2 keeps the others
+  rewind(env, 'id-rk1');
+  await call(env, 'POST', '/api/runs', { player: { platform: 'Steam', id: 'id-rk1', name: 'Ranked' }, key: r.json.key, ranks: '-,12.3,-', replay: toBase64(v28(fx('0-4-1-0'))) });
+  const e2 = (await call(env, 'GET', '/api/boards/0-4-1-0')).json.entries[0];
+  assert.deepEqual(e2.ranks, [{ tier: 15, div: 2 }, { tier: 12, div: 3 }, { tier: 19, div: 0 }]);
+});
+
+test('players without a known rank are on the board like everyone else', async () => {
+  const env = fresh();
+  await post(env, 'id-nr', 'NoRank', fx('3-1-1-1'));
+  const e = (await call(env, 'GET', '/api/boards/3-1-1-1')).json.entries;
+  assert.equal(e.length, 1);
+  assert.deepEqual(e[0].ranks, [null, null, null]);
+  assert.match((await call(env, 'GET', '/api/boards/3-1-1-1?format=text')).text, /\t-\t-\t-$/m);
+});
+
+test('bad ranks are ignored', async () => {
+  const { parseRanks } = await import('../src/index.js');
+  assert.deepEqual(parseRanks('22.3,0.0,1.1'), [91, 0, 5]);
+  assert.equal(parseRanks('23.0,-,-'), null);
+  assert.equal(parseRanks('5.4,-,-'), null);
+  assert.equal(parseRanks('-,-,-'), null);
+  assert.equal(parseRanks('1.1,2.2'), null);
+  assert.equal(parseRanks(7), null);
+});
+
+test('saved bests without replays go up once, best per board, only possible scores', async () => {
+  const env = fresh();
+  const r = await bests(env, 'id-sv1', [
+    { board: '0-4-1-0', score: 30000, targets: 30, misses: 1, date: 1790000000 },
+    { board: '0-4-1-0', score: 31000, targets: 31, misses: 0 },      // the higher one wins
+    { board: '1-1-1-0', score: 61000 },                                // Track can't beat 60,000
+    { board: '1-1-1-0', score: 50000, onPct: 70.5 },
+    { board: '0-5-1-0', score: 999 },                                  // not a board (Flip Reset has no ranges)
+    { board: 'junk', score: 5 },
+  ], undefined, '10.1,11.2,12.3');
+  assert.equal(r.status, 200, r.text);
+  assert.equal(r.json.posted, 2);
+  assert.match(r.json.key, /^[0-9a-f]{48}$/);
+  const e = (await call(env, 'GET', '/api/boards/0-4-1-0')).json.entries[0];
+  assert.equal(e.score, 31000);
+  assert.equal(e.replay, false);
+  assert.deepEqual(e.ranks, [{ tier: 10, div: 1 }, { tier: 11, div: 2 }, { tier: 12, div: 3 }]);
+  assert.equal((await call(env, 'GET', `/api/replays/${e.run}`)).status, 404); // nothing to watch
+  const tr = (await call(env, 'GET', '/api/boards/1-1-1-0')).json;
+  assert.equal(tr.entries[0].score, 50000);
+  assert.equal(tr.entries[0].onPct, 70.5);
+  assert.equal(tr.max, 60000);
+  assert.equal((await call(env, 'GET', '/api/boards/0-4-1-0')).json.max, null);
+  // sending them again changes nothing
+  rewindEpic(env, 'id-sv1');
+  const again = await bests(env, 'id-sv1', [{ board: '0-4-1-0', score: 31000 }], r.json.key);
+  assert.equal(again.json.posted, 0);
+  // someone else can't send bests for this account
+  rewindEpic(env, 'id-sv1');
+  assert.equal((await bests(env, 'id-sv1', [{ board: '0-4-1-0', score: 40000 }], 'wrong')).status, 401);
+});
+
+test('a saved best below a posted run with a replay leaves the replay alone; a higher one replaces it', async () => {
+  const env = fresh();
+  const first = await post(env, 'id-sv2', 'Both', fx('0-4-1-0')); // 43,1xx with a replay
+  const score = first.json.score;
+  rewind(env, 'id-sv2');
+  const low = await call(env, 'POST', '/api/bests', { player: { platform: 'Steam', id: 'id-sv2', name: 'Both' }, key: first.json.key, version: '2.8.0', bests: [{ board: '0-4-1-0', score: score - 1 }] });
+  assert.equal(low.json.posted, 0);
+  assert.equal((await call(env, 'GET', `/api/replays/${first.json.run}`)).status, 200);
+  rewind(env, 'id-sv2');
+  const high = await call(env, 'POST', '/api/bests', { player: { platform: 'Steam', id: 'id-sv2', name: 'Both' }, key: first.json.key, version: '2.8.0', bests: [{ board: '0-4-1-0', score: score + 1 }] });
+  assert.equal(high.json.posted, 1);
+  const e = (await call(env, 'GET', '/api/boards/0-4-1-0')).json.entries[0];
+  assert.equal(e.score, score + 1);
+  assert.equal(e.replay, false);
+  assert.equal((await call(env, 'GET', `/api/replays/${first.json.run}`)).status, 404);
+});
+
+test('old versions cannot send saved bests; the latest version is published', async () => {
+  const env = fresh();
+  const old = await call(env, 'POST', '/api/bests', { player: { platform: 'Epic', id: 'id-sv3', name: 'Old' }, version: '2.5.0', bests: [] });
+  assert.equal(old.status, 426);
+  const v = await call(env, 'GET', '/api/version?format=text');
+  assert.match(v.text, /^latest \d+\.\d+\.\d+$/m);
+  assert.match(v.text, /^plugin 904$/m);
+});

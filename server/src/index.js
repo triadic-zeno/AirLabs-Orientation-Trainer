@@ -1,6 +1,9 @@
 // AirLabs leaderboard: a Cloudflare Worker with a D1 database.
 //
 //   POST /api/runs              a finished preset run from the plugin (player + replay)
+//   POST /api/bests             a player's best score on each board, without replays (runs from
+//                               before the leaderboard; sent once by each install)
+//   GET  /api/version           the newest AirLabs on bakkesplugins (the plugin's Update button)
 //   GET  /api/boards            every board with its player count and leader
 //   GET  /api/boards/:board     one board (?limit=, ?me=<public id>)
 //   GET  /api/replays/:run      the replay of a run that is somebody's current best
@@ -15,6 +18,11 @@ import { verifyReplay } from './verify.js';
 import { PAGE } from './page.js';
 
 const MIN_VERSION = [2, 6, 0];
+// The version players can update to: bump it once a release is live on bakkesplugins (installing
+// before that would fetch the old one). PLUGIN_ID is AirLabs on bakkesplugins.com/plugin/904.
+const LATEST_VERSION = '2.8.0';
+const PLUGIN_ID = 904;
+const MAX_BESTS = 300;         // boards per /api/bests upload (there are 151)
 const UPLOAD_GAP_SEC = 20;     // runs waiting from earlier go up one at a time; real runs take 60 s
 const SIGNUPS_PER_DAY = 20;    // new players per network address per day (shared addresses are common)
 const MAX_BODY = 400 * 1024;
@@ -29,6 +37,8 @@ export default {
       if (req.method === 'GET' && p === '/') return new Response(PAGE, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'max-age=300' } });
       if (req.method === 'GET' && p === '/api/health') return reply({ ok: true }, text);
       if (req.method === 'POST' && p === '/api/runs') return await postRun(req, env, text);
+      if (req.method === 'POST' && p === '/api/bests') return await postBests(req, env, text);
+      if (req.method === 'GET' && p === '/api/version') return reply({ ok: true, latest: LATEST_VERSION, plugin: PLUGIN_ID }, text, 200, { 'cache-control': 'max-age=300' });
       if (req.method === 'GET' && p === '/api/boards') return await listBoards(env, text);
       let m;
       if (req.method === 'GET' && (m = /^\/api\/boards\/([\w-]+)$/.exec(p))) return await getBoard(env, m[1], url, text);
@@ -83,45 +93,46 @@ function versionOk(v) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// POST /api/runs  {"player": {"platform", "id", "name"}, "key": "...", "replay": "<base64 ALR1>"}
+// Players: who's uploading. The first upload hands out a key; later uploads must bring it.
 // ---------------------------------------------------------------------------------------------
-async function postRun(req, env, text) {
-  const bad = (status, error) => reply({ ok: false, error }, text, status);
-  const bodyText = await req.text();
-  if (bodyText.length > MAX_BODY) return bad(413, 'upload too large');
-  let body;
-  try { body = JSON.parse(bodyText); } catch { return bad(400, 'bad request'); }
+// Real Rocket League ranks from the plugin: "tier.div,tier.div,tier.div" for 1v1, 2v2, 3v3, with
+// "-" for one the game didn't report. Stored as tier * 4 + div (NULL = not known).
+export function parseRanks(s) {
+  if (typeof s !== 'string') return null;
+  const parts = s.split(',');
+  if (parts.length !== 3) return null;
+  const out = parts.map((x) => {
+    const m = /^(\d{1,2})\.(\d)$/.exec(x.trim());
+    if (!m) return null;
+    const tier = +m[1], div = +m[2];
+    return tier <= 22 && div <= 3 ? tier * 4 + div : null;
+  });
+  return out.some((x) => x !== null) ? out : null;
+}
+
+async function authPlayer(req, env, body, t) {
   const pl = body && body.player;
-  if (!pl || typeof pl.id !== 'string' || typeof pl.platform !== 'string') return bad(400, 'missing player');
+  if (!pl || typeof pl.id !== 'string' || typeof pl.platform !== 'string') return { error: [400, 'missing player'] };
   const platform = pl.platform.replace(/[^A-Za-z0-9]/g, '').slice(0, 16) || 'Unknown';
   const rawId = pl.id.replace(/[^A-Za-z0-9|_-]/g, '').slice(0, 80);
-  if (rawId.length < 3 || /^0+$/.test(rawId)) return bad(400, 'missing player id');
+  if (rawId.length < 3 || /^0+$/.test(rawId)) return { error: [400, 'missing player id'] };
   const id = platform + ':' + rawId;
   const name = cleanName(pl.name);
 
-  let rep, raw;
-  try { raw = fromBase64(body.replay || ''); rep = parseReplay(raw); } catch (e) { return bad(400, e.message || 'bad replay'); }
-  if (!versionOk(rep.version)) return bad(426, 'update AirLabs to post runs');
-  const b = parseBoard(boardKey(rep.mode, rep.preset, rep.range, (rep.flags & 1) !== 0));
-  if (!b) return bad(400, 'not a preset run');
-  const board = boardKey(b.mode, b.preset, b.range, b.noRoll);
-  const t = now();
-
-  // ---- the player: first upload hands out a key; later uploads must bring it ----
-  let player = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(id).first();
+  const player = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(id).first();
   let newKey = null;
   if (player) {
-    if (player.banned) return bad(403, 'this account is not allowed on the leaderboard');
+    if (player.banned) return { error: [403, 'this account is not allowed on the leaderboard'] };
     if (player.key_hash) {
       if (typeof body.key !== 'string' || (await sha256hex(body.key)) !== player.key_hash)
-        return bad(401, 'this Rocket League account is linked to another AirLabs install');
+        return { error: [401, 'this Rocket League account is linked to another AirLabs install'] };
     } else newKey = randomKey();
-    if (t - player.last_upload < UPLOAD_GAP_SEC) return bad(429, 'too many uploads, slow down');
+    if (t - player.last_upload < UPLOAD_GAP_SEC) return { error: [429, 'too many uploads, slow down'] };
   } else {
     const ip = req.headers.get('cf-connecting-ip') || 'local';
     const d = Math.floor(t / 86400);
     const su = await env.DB.prepare('SELECT n FROM signups WHERE ip = ? AND day = ?').bind(ip, d).first();
-    if (su && su.n >= SIGNUPS_PER_DAY) return bad(429, 'too many new players from this network today');
+    if (su && su.n >= SIGNUPS_PER_DAY) return { error: [429, 'too many new players from this network today'] };
     await env.DB.prepare('INSERT INTO signups (ip, day, n) VALUES (?, ?, 1) ON CONFLICT(ip, day) DO UPDATE SET n = n + 1').bind(ip, d).run();
     newKey = randomKey();
   }
@@ -133,6 +144,40 @@ async function postRun(req, env, text) {
     await env.DB.prepare('INSERT INTO players (id, pid, name, platform, key_hash, created, last_upload) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .bind(id, pid, name, platform, keyHash, t, t).run();
   }
+  // Ranks the game reported this time replace the old ones; a playlist it didn't report keeps its old value.
+  const ranks = parseRanks(body.ranks);
+  if (ranks) {
+    await env.DB.prepare(`UPDATE players SET rank1 = COALESCE(?, rank1), rank2 = COALESCE(?, rank2), rank3 = COALESCE(?, rank3),
+        ranks_updated = ? WHERE id = ?`).bind(ranks[0], ranks[1], ranks[2], t, id).run();
+  }
+  return { id, pid, name, platform, newKey };
+}
+
+// The most a run on this board can score: Track and Chase pay 1000 points a second for 60 s.
+const maxScore = (b) => (b.mode === 1 || b.mode === 3 ? 60000 : 500000);
+
+// ---------------------------------------------------------------------------------------------
+// POST /api/runs  {"player": {"platform", "id", "name"}, "key": "...", "ranks": "...", "replay": "<base64 ALR1>"}
+// ---------------------------------------------------------------------------------------------
+async function postRun(req, env, text) {
+  const bad = (status, error) => reply({ ok: false, error }, text, status);
+  const bodyText = await req.text();
+  if (bodyText.length > MAX_BODY) return bad(413, 'upload too large');
+  let body;
+  try { body = JSON.parse(bodyText); } catch { return bad(400, 'bad request'); }
+  if (!body || !body.player) return bad(400, 'missing player');
+
+  let rep, raw;
+  try { raw = fromBase64(body.replay || ''); rep = parseReplay(raw); } catch (e) { return bad(400, e.message || 'bad replay'); }
+  if (!versionOk(rep.version)) return bad(426, 'update AirLabs to post runs');
+  const b = parseBoard(boardKey(rep.mode, rep.preset, rep.range, (rep.flags & 1) !== 0));
+  if (!b) return bad(400, 'not a preset run');
+  const board = boardKey(b.mode, b.preset, b.range, b.noRoll);
+  const t = now();
+
+  const who = await authPlayer(req, env, body, t);
+  if (who.error) return bad(...who.error);
+  const { id, pid, newKey } = who;
 
   // ---- only a new personal best is checked and stored ----
   const prev = await env.DB.prepare('SELECT run, score FROM best WHERE board = ? AND player = ?').bind(board, id).first();
@@ -177,6 +222,57 @@ async function postRun(req, env, text) {
     ok: true, best: true, board, title: boardTitle(b), score, pos: pos.pos, of: pos.total, run: runId, pid, key: newKey,
     message: `New best posted: #${pos.pos} of ${pos.total}.`,
   }, text);
+}
+
+// ---------------------------------------------------------------------------------------------
+// POST /api/bests  {"player", "key", "ranks", "version": "2.8.0",
+//                   "bests": [{"board": "0-4-1-0", "score": 12345, "targets": 20, "misses": 1, "onPct": 80.5, "date": <unix s>}]}
+// A player's best score on each board from their own saved runs, including runs from before the
+// leaderboard (so without replays). Each one that beats what the board has for them goes up.
+// ---------------------------------------------------------------------------------------------
+async function postBests(req, env, text) {
+  const bad = (status, error) => reply({ ok: false, error }, text, status);
+  const bodyText = await req.text();
+  if (bodyText.length > MAX_BODY) return bad(413, 'upload too large');
+  let body;
+  try { body = JSON.parse(bodyText); } catch { return bad(400, 'bad request'); }
+  if (!body || !body.player) return bad(400, 'missing player');
+  if (!versionOk(body.version)) return bad(426, 'update AirLabs to post runs');
+  if (!Array.isArray(body.bests) || body.bests.length > MAX_BESTS) return bad(400, 'bad list of bests');
+  const t = now();
+  const who = await authPlayer(req, env, body, t);
+  if (who.error) return bad(...who.error);
+  const { id, pid, newKey } = who;
+  const version = String(body.version).replace(/[^0-9.]/g, '').slice(0, 16);
+
+  // One per board (the highest), only real preset boards, only possible scores.
+  const wanted = new Map();
+  for (const e of body.bests) {
+    const b = e && parseBoard(String(e.board));
+    const score = e && Number.isInteger(e.score) ? e.score : -1;
+    if (!b || score < 0 || score > maxScore(b)) continue;
+    const key = boardKey(b.mode, b.preset, b.range, b.noRoll);
+    if (!wanted.has(key) || wanted.get(key).score < score) wanted.set(key, { ...e, score, board: key });
+  }
+  let posted = 0;
+  for (const e of wanted.values()) {
+    const prev = await env.DB.prepare('SELECT run, score FROM best WHERE board = ? AND player = ?').bind(e.board, id).first();
+    if (prev && e.score <= prev.score) continue;
+    const when = Number.isInteger(e.date) && e.date > 1500000000 && e.date <= t ? e.date : t;
+    const int = (x) => (Number.isInteger(x) && x >= 0 && x < 100000 ? x : 0);
+    const pct = typeof e.onPct === 'number' && e.onPct >= 0 && e.onPct <= 100 ? e.onPct : null;
+    const ins = await env.DB.prepare(
+      'INSERT INTO runs (player, board, score, created, version, targets, misses, on_pct, avg_time, flags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?) RETURNING id')
+      .bind(id, e.board, e.score, when, version, int(e.targets), int(e.misses), pct, 'noreplay saved-best').first();
+    const ops = [env.DB.prepare(`INSERT INTO best (board, player, run, score, created) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(board, player) DO UPDATE SET run = excluded.run, score = excluded.score, created = excluded.created`)
+      .bind(e.board, id, ins.id, e.score, when)];
+    if (prev) ops.push(env.DB.prepare('DELETE FROM replays WHERE run = ?').bind(prev.run));
+    await env.DB.batch(ops);
+    ++posted;
+  }
+  return reply({ ok: true, posted, of: wanted.size, pid, key: newKey,
+    message: posted ? `${posted} of your saved bests went up.` : 'Your saved bests were already up.' }, text);
 }
 
 function randomKey() {
@@ -224,7 +320,8 @@ async function getBoard(env, key, url, text) {
   if (!b) return reply({ ok: false, error: 'no such board' }, text, 404);
   const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '100', 10) || 100));
   const me = (url.searchParams.get('me') || '').replace(/[^0-9a-f]/g, '').slice(0, 16);
-  const { results } = await env.DB.prepare(`SELECT b.score, b.created, b.run, p.pid, p.name, p.platform, r.targets, r.misses, r.on_pct, r.avg_time
+  const { results } = await env.DB.prepare(`SELECT b.score, b.created, b.run, p.pid, p.name, p.platform, p.rank1, p.rank2, p.rank3,
+        r.targets, r.misses, r.on_pct, r.avg_time, (SELECT COUNT(*) FROM replays rp WHERE rp.run = b.run) AS has_replay
       FROM best b JOIN players p ON p.id = b.player JOIN runs r ON r.id = b.run
       WHERE b.board = ? AND p.banned = 0 AND r.hidden = 0
       ORDER BY b.score DESC, b.created ASC, b.run ASC LIMIT ?`).bind(key, limit).all();
@@ -236,15 +333,21 @@ async function getBoard(env, key, url, text) {
         WHERE b.board = ? AND p.pid = ? AND p.banned = 0 AND r.hidden = 0`).bind(key, me).first();
     if (row) mine = { pos: (await position(env, key, row.score, row.created, row.run, me)).pos, score: row.score, run: row.run, date: day(row.created) };
   }
+  const rank = (v) => (v === null || v === undefined ? null : { tier: v >> 2, div: v & 3 });
   const entries = results.map((x, i) => ({
     pos: i + 1, pid: x.pid, name: x.name, platform: x.platform, score: x.score, tier: tierIndex(x.score, b.mode, b.preset, b.range),
     date: day(x.created), run: x.run, targets: x.targets, misses: x.misses, onPct: x.on_pct, avgTime: x.avg_time,
+    replay: x.has_replay > 0, ranks: [rank(x.rank1), rank(x.rank2), rank(x.rank3)],
   }));
+  const max = maxScore(b) <= 60000 ? maxScore(b) : null; // only where there is a real ceiling
   if (text) {
-    return reply({ ok: true, board: key, title: boardTitle(b), total, me: mine,
-      rows: entries.map((e) => [e.pos, e.pid, cleanText(e.name), e.platform, e.score, e.date, e.run]) }, true, 200, { 'cache-control': 'max-age=10' });
+    // Old plugins read the first seven fields; replay (1/0) and the 1v1/2v2/3v3 ranks ("tier.div" or "-") follow.
+    const r = (k) => (k ? k.tier + '.' + k.div : '-');
+    return reply({ ok: true, board: key, title: boardTitle(b), total, max, me: mine,
+      rows: entries.map((e) => [e.pos, e.pid, cleanText(e.name), e.platform, e.score, e.date, e.run, e.replay ? 1 : 0, r(e.ranks[0]), r(e.ranks[1]), r(e.ranks[2])]) },
+      true, 200, { 'cache-control': 'max-age=10' });
   }
-  return reply({ ok: true, board: key, title: boardTitle(b), total, me: mine, entries }, false, 200, { 'cache-control': 'max-age=10' });
+  return reply({ ok: true, board: key, title: boardTitle(b), total, max, me: mine, entries }, false, 200, { 'cache-control': 'max-age=10' });
 }
 const cleanText = (s) => String(s).replace(/[\t\r\n]/g, ' ');
 
