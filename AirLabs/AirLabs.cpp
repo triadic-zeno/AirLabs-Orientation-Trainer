@@ -470,6 +470,7 @@ void AirLabs::RegisterCvars()
     hudGrid = mkB(false); blockJumpBoost = mkB(true);
     laserLength = mkF(6000.f); laserWidth = mkF(3.f); guideAccel = mkF(450.f); guideMode = mkI(0);
     lbPost = mkB(true); lbUrl = std::make_shared<std::string>(kLeaderboardUrl);
+    showTips = mkB(true);
 
     reg("airlabs_mode", "0", "0 = Flick, 1 = Track, 2 = Hybrid, 3 = Chase", 0.f, static_cast<float>(kModeCount - 1)).bindTo(mode);
     reg("airlabs_preset_flick", "4", "Flick preset (last = Custom)", 0.f, maxIdx(kFlick)).bindTo(presetFlick);
@@ -520,6 +521,7 @@ void AirLabs::RegisterCvars()
     reg("airlabs_readout", "0", "Readout: stick %, spin speed, ball speed, physics rate", 0.f, 1.f).bindTo(readout);
     reg("airlabs_hud_grid", "0", "Show the times-by-direction grid during Flick and Hybrid", 0.f, 1.f).bindTo(hudGrid);
     reg("airlabs_block_jump", "1", "Custom runs: block jump and boost while pinned", 0.f, 1.f).bindTo(blockJumpBoost);
+    reg("airlabs_tips", "1", "Show a training tip on the Play page", 0.f, 1.f).bindTo(showTips);
 
     // Leaderboard
     reg("airlabs_lb_post", "1", "Post your preset runs to the public AirLabs leaderboard (your best per preset, with its replay, under your Rocket League name). On by default", 0.f, 1.f).bindTo(lbPost);
@@ -3656,6 +3658,17 @@ void AirLabs::StatsHistory()
 
 void AirLabs::TabHelp()
 {
+    Heading("Tips");
+    for (int i = 0; i < kTipCount; ++i)
+    {
+        ImGui::Bullet();
+        ImGui::TextWrapped("%s %s", kTips[i].title, kTips[i].body);
+    }
+    if (showTips && !*showTips)
+    {
+        if (ImGui::Button("Show a tip on the Play page")) SetCvarI("airlabs_tips", 1);
+    }
+
     Heading("How a run works");
     ImGui::TextWrapped("Pick a mode, a preset and a range on the Play tab, then press Start at the top. Your car resets to the centre with a ball between you and the goal, 45 degrees to the side of your nose: turn onto it and point at it for 1.5 seconds and the one-minute run begins. When the minute is up you get a score, a tier and how it compares with your personal best, and the car and ball reset straight away: point at the ball to go again. Press Stop (or your airlabs_toggle key) to finish.");
 

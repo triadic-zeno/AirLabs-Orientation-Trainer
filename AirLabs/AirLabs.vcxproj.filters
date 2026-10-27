@@ -23,6 +23,7 @@
     <ClInclude Include="AirLabs.h"><Filter>Source</Filter></ClInclude>
     <ClInclude Include="EmbeddedFonts.h"><Filter>Source</Filter></ClInclude>
     <ClInclude Include="Replay.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="Tips.h"><Filter>Source</Filter></ClInclude>
     <ClInclude Include="TrainerCore.h"><Filter>Source</Filter></ClInclude>
     <ClInclude Include="imgui\imconfig.h"><Filter>imgui</Filter></ClInclude>
     <ClInclude Include="imgui\imgui.h"><Filter>imgui</Filter></ClInclude>

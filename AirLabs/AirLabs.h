@@ -25,6 +25,7 @@
 
 #include "TrainerCore.h"
 #include "Replay.h"
+#include "Tips.h"
 
 struct ImFont;
 struct ImDrawList;
@@ -54,7 +55,13 @@ public:
     std::string GetMenuTitle() override { return "AirLabs"; }
     bool ShouldBlockInput() override;
     bool IsActiveOverlay() override { return true; }
-    void OnOpen() override { windowOpen = true; replayOver = false; }
+    void OnOpen() override
+    {
+        windowOpen = true;
+        replayOver = false;
+        if (tipSeen) ++tipIndex; // a new tip each time the window opens
+        tipSeen = true;
+    }
     void OnClose() override { windowOpen = false; }
 
 #ifdef AIRLABS_UI_HARNESS
@@ -156,6 +163,9 @@ private:
     std::shared_ptr<float> laserLength, laserWidth, guideAccel;
     std::shared_ptr<int> guideMode;
     std::shared_ptr<bool> lbPost;          // airlabs_lb_post: post your preset runs to the public leaderboard
+    std::shared_ptr<bool> showTips;        // airlabs_tips: a training tip on the Play page
+    int tipIndex = 0;                      // which tip (Tips.h); the first is "Track is the best mode"
+    bool tipSeen = false;
     std::shared_ptr<std::string> lbUrl;    // airlabs_lb_url: the leaderboard server
 
     // ---- run state ----

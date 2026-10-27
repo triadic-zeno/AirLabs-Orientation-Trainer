@@ -168,8 +168,10 @@ namespace
         return pressed;
     }
 
-    // Big selectable tile: title and a one-line description.
-    bool Tile(const char* id, const char* title, const char* desc, bool selected, ImVec2 size, ImFont* titleFont, ImFont* descFont)
+    // Big selectable tile: title and a one-line description. badge = a small green label on the
+    // right of the title (badgeShort when the full one doesn't fit).
+    bool Tile(const char* id, const char* title, const char* desc, bool selected, ImVec2 size, ImFont* titleFont, ImFont* descFont,
+              const char* badge = nullptr, const char* badgeShort = nullptr)
     {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         ImVec2 p = ImGui::GetCursorScreenPos();
@@ -180,6 +182,18 @@ namespace
         dl->AddRect(p, q, selected ? kAccent : kBorder, 10.f, ImDrawCornerFlags_All, selected ? 2.f : 1.f);
         DrawText(dl, titleFont, ImVec2(p.x + 16, p.y + 14), selected ? kText : (hover ? kText : kDim), title);
         DrawText(dl, descFont, ImVec2(p.x + 16, p.y + 16 + SizeOf(titleFont) + 4), selected ? kDim : kFaint, desc, size.x - 32);
+        const float titleRight = p.x + 16.f + TextSize(titleFont, title).x;
+        for (const char* b : { badge, badgeShort })
+        {
+            if (!b) continue;
+            const ImVec2 bs = TextSize(descFont, b);
+            const float bw = bs.x + 14.f, bh = bs.y + 4.f;
+            const ImVec2 b0(q.x - 12.f - bw, p.y + 14.f + (SizeOf(titleFont) - bh) * 0.5f);
+            if (b0.x < titleRight + 8.f) continue; // doesn't fit: try the short one
+            dl->AddRectFilled(b0, ImVec2(b0.x + bw, b0.y + bh), Rgb(52, 211, 153, 40), bh * 0.5f);
+            DrawText(dl, descFont, ImVec2(b0.x + 7.f, b0.y + 2.f), kGood, b);
+            break;
+        }
         return pressed;
     }
 
@@ -828,6 +842,39 @@ void AirLabs::WinPlay()
         }
     }
 
+    // ---- a training tip (Tips.h): a new one each time the window opens ----
+    if (showTips && *showTips)
+    {
+        const Tip& tip = kTips[((tipIndex % kTipCount) + kTipCount) % kTipCount];
+        ImGui::Dummy(ImVec2(0, 4));
+        Card c;
+        c.Begin(width, 16.f);
+        const ImVec2 top = ImGui::GetCursorScreenPos();
+        {
+            FontScope f(small);
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kAccentHi), "TIP");
+        }
+        {
+            const float nextW = TextSize(small, "Next tip").x + 4.f, hideW = TextSize(small, "Hide tips").x + 4.f, gap = 18.f;
+            ImGui::SetCursorScreenPos(ImVec2(top.x + c.Inner() - nextW - gap - hideW, top.y - 2.f));
+            if (LinkButton("##tipnext", "Next tip", small, kAccentHi)) ++tipIndex;
+            ImGui::SameLine(0, gap);
+            if (LinkButton("##tiphide", "Hide tips", small)) SetCvarI("airlabs_tips", 0);
+        }
+        ImGui::SetCursorScreenPos(ImVec2(top.x, top.y + SizeOf(small) + 6.f));
+        {
+            FontScope f(bold);
+            ImGui::TextUnformatted(tip.title);
+        }
+        {
+            FontScope f(small);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kDim));
+            ImGui::TextWrapped("%s", tip.body);
+            ImGui::PopStyleColor();
+        }
+        c.End(kCard, kBorder);
+    }
+
 
     // ---- mode ----
     SectionLabel(small, "MODE");
@@ -837,7 +884,8 @@ void AirLabs::WinPlay()
         {
             if (m) ImGui::SameLine(0, gap);
             ImGui::PushID(m);
-            if (Tile("##mode", ModeName(m), kModeTileDesc[m], s.mode == m, ImVec2(tileW, 82.f), uiFonts[kFontHeading], small)) SetCvarI("airlabs_mode", m);
+            if (Tile("##mode", ModeName(m), kModeTileDesc[m], s.mode == m, ImVec2(tileW, 82.f), uiFonts[kFontHeading], small,
+                     m == kTrack ? "Best" : nullptr)) SetCvarI("airlabs_mode", m);
             ImGui::PopID();
         }
         // No air roll: a variant of every mode, with its own records.
@@ -1503,7 +1551,7 @@ void AirLabs::WinLeaderboard()
     }
     {
         FontScope f(small);
-        ImGui::TextDisabled("Everyone's best one-minute run on every preset. Every run is checked by replaying it, and you can watch any of them.");
+        ImGui::TextDisabled("Everyone's best one-minute run on every preset. Every run comes with its replay, so you can watch any of them.");
     }
     ImGui::Dummy(ImVec2(0, 2));
 

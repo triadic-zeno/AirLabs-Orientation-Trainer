@@ -20,7 +20,9 @@ export const PAGE = `<!doctype html>
   header { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
   .logo { width: 34px; height: 34px; flex: none; }
   h1 { font-size: 24px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-  .sub { color: var(--dim); margin: 0 0 22px 48px; }
+  .sub { color: var(--dim); margin: 0 0 14px 48px; }
+  .tip { margin: 0 0 22px; padding: 12px 16px; background: rgba(52,211,153,.08); border: 1px solid rgba(52,211,153,.28); border-radius: 10px; color: var(--dim); font-size: 14px; }
+  .tip b { color: #34d399; font-weight: 600; }
   .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
   .seg { display: inline-flex; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
   .seg button, .chip { font: inherit; color: var(--dim); background: none; border: 0; cursor: pointer; }
@@ -61,7 +63,8 @@ export const PAGE = `<!doctype html>
     <svg class="logo" viewBox="0 0 34 34" aria-hidden="true"><circle cx="17" cy="17" r="13" fill="none" stroke="#3b82f6" stroke-width="2.5"/><circle cx="17" cy="17" r="6" fill="none" stroke="#5694f8" stroke-width="2"/><circle cx="17" cy="17" r="2.2" fill="#fff"/></svg>
     <h1>AirLabs Leaderboard</h1>
   </header>
-  <p class="sub">Everyone's best one-minute run on every AirLabs preset. Every run is checked by replaying it, and you can watch any of them in the game.</p>
+  <p class="sub">Everyone's best one-minute run on every AirLabs preset. Every run comes with its replay, so you can watch any of them in the game.</p>
+  <p class="tip"><b>New to AirLabs? Start with Track.</b> Aerials are about holding your nose on a moving ball while you fly, and Track trains exactly that. Begin on Control, and move up once you're on the ball about 75% of the time.</p>
 
   <div class="bar">
     <div class="seg" id="modes" role="group" aria-label="Mode"></div>
@@ -75,7 +78,7 @@ export const PAGE = `<!doctype html>
     <div id="board"><div class="empty">Loading…</div></div>
   </div>
   <footer>
-    To post your runs, turn on <b>Post my runs</b> on the Leaderboard page in AirLabs. To watch a run, press <b>Watch</b> next to it there.
+    Your preset runs post here automatically (turn it off with <b>Stop posting</b> on the Leaderboard page in AirLabs). To watch a run, press <b>Watch</b> next to it there.
     · <a href="https://github.com/triadic-zeno/airlabs-orientation-trainer">AirLabs on GitHub</a>
   </footer>
 </div>
@@ -132,7 +135,7 @@ async function go(push = true) {
     document.getElementById('title').textContent = r.title;
     document.getElementById('count').textContent = r.total ? r.total + (r.total === 1 ? ' player' : ' players') : '';
     if (!r.entries || !r.entries.length) {
-      board.replaceChildren(el('div', { class: 'empty' }, 'No runs on this board yet. Play it in AirLabs with Post my runs on, and the top spot is yours.'));
+      board.replaceChildren(el('div', { class: 'empty' }, 'No runs on this board yet. Play it in AirLabs and the top spot is yours.'));
       return;
     }
     const tracky = sel.mode === 1 || sel.mode === 3;
