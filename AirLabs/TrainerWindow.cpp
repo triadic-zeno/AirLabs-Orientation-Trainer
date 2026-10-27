@@ -22,7 +22,7 @@ extern ImFont* g_otHeadingFont; // AirLabs.cpp: section headings use this when s
 
 namespace
 {
-    constexpr const char* kWinVersion = "2.8.0";
+    constexpr const char* kWinVersion = "2.8.1";
 
     // ---- palette ----
     constexpr ImU32 Rgb(int r, int g, int b, int a = 255) { return IM_COL32(r, g, b, a); }
@@ -723,15 +723,17 @@ void AirLabs::WinSidebar(float height)
     const float boxH = 104.f;
     ImVec2 top(p.x + 12.f, p.y + height - boxH - 12.f);
 
-    // A newer AirLabs on bakkesplugins: an Update button just above the status box.
+    // Updates, just above the status box: checking, no update, couldn't check, or the Update button.
     std::string latest;
     bool updating;
+    UpdateCheck check;
     {
         std::lock_guard<std::mutex> lock(lbMutex);
         latest = lbLatest;
         updating = lbUpdating;
+        check = lbUpdateCheck;
     }
-    if (!latest.empty())
+    if (check == UpdateCheck::Available && !latest.empty())
     {
         const float bh = 62.f;
         const ImVec2 b0(top.x, top.y - bh - 10.f), b1(p.x + w - 12.f, top.y - 10.f);
@@ -751,6 +753,30 @@ void AirLabs::WinSidebar(float height)
         if (hover && !updating) ImGui::SetTooltip("Install AirLabs %s from bakkesplugins. BakkesMod reloads it when it's done.", latest.c_str());
         if (pressed && !updating) StartUpdate();
     }
+    else
+    {
+        // One line of status, and a link to check (again).
+        ImFont* sm = uiFonts[kFontSmall];
+        const float lineH = SizeOf(sm);
+        const ImVec2 r0(top.x + 4.f, top.y - 2.f * lineH - 22.f);
+        const char* what = check == UpdateCheck::Checking ? "Checking for updates..."
+                         : check == UpdateCheck::UpToDate ? "No update available"
+                         : check == UpdateCheck::Failed   ? "Couldn't check for updates"
+                                                          : "";
+        const ImU32 dot = check == UpdateCheck::UpToDate ? kGood : check == UpdateCheck::Failed ? kWarn : kFaint;
+        if (*what)
+        {
+            dl->AddCircleFilled(ImVec2(r0.x + 5.f, r0.y + lineH * 0.5f + 1.f), 3.5f, dot, 12);
+            DrawText(dl, sm, ImVec2(r0.x + 16.f, r0.y), check == UpdateCheck::Failed ? kWarn : kDim, what);
+        }
+        if (check != UpdateCheck::Checking)
+        {
+            ImGui::SetCursorScreenPos(ImVec2(r0.x + 14.f, r0.y + lineH + 4.f));
+            const char* link = check == UpdateCheck::Failed ? "Try again" : check == UpdateCheck::UpToDate ? "Check again" : "Check for updates";
+            if (LinkButton("##otcheckupd", link, sm, kAccentHi)) CheckForUpdate();
+        }
+    }
+
     ImVec2 bot(p.x + w - 12.f, p.y + height - 12.f);
     dl->AddRectFilled(top, bot, kCard, 10.f);
     dl->AddRect(top, bot, kBorder, 10.f);

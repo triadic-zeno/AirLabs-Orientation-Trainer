@@ -513,9 +513,12 @@ on boards of its own. The same boards are on the web at
   you post, the server gives this install a key (`data/AirLabs/leaderboard.txt`), so nobody else
   can post as you. Turn posting off any time with **Stop posting**.
 
-**Updates.** When AirLabs loads it asks the leaderboard server which version is on
-bakkesplugins. If that's newer, an **Update** button appears in the sidebar; it has BakkesMod
-install the new version (`bpm_install 904`, as the website's install button does) and reload it.
+**Updates.** When AirLabs loads, and whenever you open its window (at most every 5 minutes), it
+asks the leaderboard server which version is on bakkesplugins. The sidebar shows the result:
+*Checking for updates...*, *No update available* (with **Check again**), *Couldn't check for
+updates* (with **Try again**), or, when a newer version is out, an **Update** button. That has
+BakkesMod install the new version (`bpm_install 904`, as the website's install button does) and
+reload it.
 
 The server is a Cloudflare Worker with a D1 database, in `server/` (see `server/README.md`).
 

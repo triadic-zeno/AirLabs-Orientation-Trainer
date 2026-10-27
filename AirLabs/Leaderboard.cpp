@@ -783,18 +783,37 @@ void AirLabs::SendSavedBests(int attempt)
 // ---------------------------------------------------------------------------------------------
 void AirLabs::CheckForUpdate()
 {
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        if (lbUpdateCheck == UpdateCheck::Checking) return;
+        lbUpdateCheck = UpdateCheck::Checking;
+        lbUpdateCheckedWall = Wall();
+    }
     CurlRequest req;
     req.url = LbUrl("/api/version?format=text");
     req.verb = "GET";
     auto alive = lbAlive;
     HttpWrapper::SendCurlRequest(req, [this, alive](int code, std::string result) {
-        if (!alive->load() || code != 200) return;
+        if (!alive->load()) return;
         TextReply t = ParseTextReply(result);
         const std::string latest = t.Get("latest");
         std::lock_guard<std::mutex> lock(lbMutex);
+        lbUpdateCheckedWall = Wall();
+        if (code != 200 || t.Get("ok") != "1" || latest.empty()) { lbUpdateCheck = UpdateCheck::Failed; return; }
         lbLatest = NewerVersion(latest, PluginVersion()) ? latest : std::string();
+        lbUpdateCheck = lbLatest.empty() ? UpdateCheck::UpToDate : UpdateCheck::Available;
         if (t.GetInt("plugin") > 0) lbPluginId = t.GetInt("plugin");
     });
+}
+
+void AirLabs::CheckForUpdateIfStale()
+{
+    bool stale;
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        stale = lbUpdateCheck != UpdateCheck::Checking && Wall() - lbUpdateCheckedWall > 300.0;
+    }
+    if (stale) CheckForUpdate();
 }
 
 void AirLabs::StartUpdate()

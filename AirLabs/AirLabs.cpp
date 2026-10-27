@@ -18,14 +18,14 @@
 
 using namespace airlabs;
 
-BAKKESMOD_PLUGIN(AirLabs, "AirLabs", "2.8.0", PLUGINTYPE_FREEPLAY)
+BAKKESMOD_PLUGIN(AirLabs, "AirLabs", "2.8.1", PLUGINTYPE_FREEPLAY)
 
 // Set by the trainer window while it draws, so shared section headings use its font.
 ImFont* g_otHeadingFont = nullptr;
 
 namespace
 {
-    constexpr const char* kVersion = "2.8.0";
+    constexpr const char* kVersion = "2.8.1";
     // The public leaderboard (a Cloudflare Worker, see server/ in the source).
     constexpr const char* kLeaderboardUrl = "https://leaderboard.airlabs.workers.dev";
     const char* kTickEvent = "Function TAGame.Car_TA.SetVehicleInput";
@@ -3706,7 +3706,7 @@ void AirLabs::TabHelp()
     ImGui::TextWrapped("The Leaderboard page shows everyone's best run on every preset and range (No air roll has its own boards). Your preset runs post there under your Rocket League name: whenever a run beats your best on that board, it goes up with its replay. Don't want that? Press Stop posting on the Leaderboard page. Press Watch next to any run to see it in the game: your car and the ball follow the replay exactly, and Stop (or your airlabs_toggle key) ends it. Your best score on every preset from your saved runs goes up too, including runs from before replays were recorded (those show No replay). Next to each name are that player's Rocket League ranks in 1s, 2s and 3s, as their game reports them. The same boards are on the web too.");
 
     Heading("Updates");
-    ImGui::TextWrapped("AirLabs checks for a new version when it loads. When one is out, an Update button appears in the sidebar: press it and BakkesMod installs the new version and reloads the plugin.");
+    ImGui::TextWrapped("AirLabs checks for a new version when it loads and whenever you open this window (at most every 5 minutes); the sidebar says what it found, and Check again checks now. When a new version is out, an Update button appears there instead: press it and BakkesMod installs the new version and reloads the plugin.");
 
     Heading("Fair timing");
     ImGui::TextWrapped("Runs are timed in physics ticks (120 per second), so frame rate doesn't affect your score and pausing the game pauses the run. The readout (Assists tab) shows the measured tick rate.");

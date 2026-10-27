@@ -61,6 +61,7 @@ public:
         replayOver = false;
         if (tipSeen) ++tipIndex; // a new tip each time the window opens
         tipSeen = true;
+        CheckForUpdateIfStale();
     }
     void OnClose() override { windowOpen = false; }
 
@@ -280,7 +281,11 @@ private:
     std::string lbLatest;  // newer than this build, or empty
     int lbPluginId = 904;  // AirLabs on bakkesplugins.com/plugin/904
     bool lbUpdating = false;
+    enum class UpdateCheck { NotYet, Checking, UpToDate, Available, Failed };
+    UpdateCheck lbUpdateCheck = UpdateCheck::NotYet;
+    double lbUpdateCheckedWall = -1e9;
     void CheckForUpdate();
+    void CheckForUpdateIfStale(); // when the window opens: again if the last check is 5+ minutes old
     void StartUpdate();
     static const char* PluginVersion();
 
