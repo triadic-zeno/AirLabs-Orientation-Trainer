@@ -18,14 +18,14 @@
 
 using namespace airlabs;
 
-BAKKESMOD_PLUGIN(AirLabs, "AirLabs", "2.7.1", PLUGINTYPE_FREEPLAY)
+BAKKESMOD_PLUGIN(AirLabs, "AirLabs", "2.7.2", PLUGINTYPE_FREEPLAY)
 
 // Set by the trainer window while it draws, so shared section headings use its font.
 ImFont* g_otHeadingFont = nullptr;
 
 namespace
 {
-    constexpr const char* kVersion = "2.7.1";
+    constexpr const char* kVersion = "2.7.2";
     // The public leaderboard (a Cloudflare Worker, see server/ in the source).
     constexpr const char* kLeaderboardUrl = "https://leaderboard.airlabs.workers.dev";
     const char* kTickEvent = "Function TAGame.Car_TA.SetVehicleInput";

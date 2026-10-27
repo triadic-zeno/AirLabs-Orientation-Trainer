@@ -431,6 +431,13 @@ measured GC1 player. The next step is real **controller** runs from players of k
 AirLabs marks keyboard runs in `runs.csv` (the `flags` column says `keyboard`) so they can be
 kept out of that. Older runs are re-graded with the current marks when the plugin loads.
 
+**Flick Small (2.7.2).** The first leaderboard runs showed the model rating Small far too hard
+for low and middle ranks: a player who is Platinum on Flick Mixed and Gold on Track came out
+Bronze I on Small. The model treats small, on-screen turns as easy, and misses the time real
+players lose settling onto the ball for the hold. Small's marks are now set from Flick Medium's,
+scaled up by how much higher Small's Pro mark is (about 1.4-1.6x, because small turns are
+quicker), rising to 1.37 times that at Bronze. The Pro mark is unchanged.
+
 ## Stats page
 
 Four sub-tabs:
