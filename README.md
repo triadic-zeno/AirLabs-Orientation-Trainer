@@ -11,6 +11,10 @@ every player the same one-minute run, so scores can be compared.
 | **Hybrid** | A ball appears, you flick onto it, then it takes off in a straight line and you track it for 4 seconds. |
 | **Chase** | One ball. Point at it and it dashes off in a random direction, then stops. Catch it again, and again. |
 
+**New? Start with Track.** Aerials are about holding your nose on a moving ball while you
+fly, and Track trains exactly that. AirLabs opens on Track Control, Medium range: move up
+to Standard once you're on the ball about 75% of the time.
+
 ## Install
 
 **Players:** install AirLabs from the BakkesMod plugin manager (or
@@ -63,13 +67,15 @@ bind O airlabs_menu
 
 (Or press **Open the AirLabs window** in F2 > Plugins > AirLabs.)
 
-- **Sidebar:** Play, Stats, Assists and Help, plus the run status and the key hint.
+- **Sidebar:** Play, Stats, Leaderboard, Assists and Help, plus the run status and the key hint.
 - **Play:** an "Up next" card shows exactly what Start will play (mode, preset, range,
-  target size, speed or turns, run length, your best) with a big **START** button. Below
-  it: mode tiles, preset chips (Dynamic opens its speed ranges), the Short / Medium /
-  Long range switch, a **Save as preset** row and a **Customise**
-  drawer with every setting. Your saved presets sit in a **My presets** row under the
-  main preset chips. Pressing Start closes the window so you go straight into the run.
+  target size, speed or turns, run length, your best) with a big **START** button, and a
+  training tip under it (a new one each time the window opens; **Hide tips** turns them
+  off, Help turns them back on). Below that: mode tiles, preset chips (Dynamic opens its
+  speed ranges), the Short / Medium / Long range switch, every setting on the same page,
+  and a **Save as preset** row at the bottom. Your saved presets sit in a **My presets**
+  row under the main preset chips. Pressing Start closes the window so you go straight
+  into the run.
 - The window opens at 1340 x 940 the first time; drag the corner to resize it and it
   remembers the size.
 - **Stats:** Overview, Records, Directions and History.
@@ -270,9 +276,18 @@ ball's edge. A closer ball is a bigger target and easier to hit.
 - Scores are honour-system: the code is public, so a determined person could fake a
   result line. That's true of any offline trainer.
 
-## Settings (Play page > Customise, grouped under the mode)
+## Settings (on the Play page)
 
-Every setting has a plain-language explanation under it in the plugin.
+Every setting is on the Play page, with its name and a plain-language explanation on the
+left and the control on the right, most important first:
+
+1. **Round:** round length, time per target (time to catch the ball in Chase) and the
+   delay between targets.
+2. **Ball spawn:** ball spawn height, ball spawn direction (relative to your car) and
+   ball distance.
+3. **The mode's own settings**, listed below.
+
+Changing any of them makes the run Custom.
 
 **Flick:** smallest/biggest turn, hold to confirm, time limit, delay
 between targets, aim with (nose or wheels), must stop on target (and how slow counts

@@ -22,7 +22,7 @@ extern ImFont* g_otHeadingFont; // AirLabs.cpp: section headings use this when s
 
 namespace
 {
-    constexpr const char* kWinVersion = "2.6.0";
+    constexpr const char* kWinVersion = "2.7.0";
 
     // ---- palette ----
     constexpr ImU32 Rgb(int r, int g, int b, int a = 255) { return IM_COL32(r, g, b, a); }
