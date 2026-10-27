@@ -22,6 +22,10 @@ namespace airlabs
         { "Roll, then pitch.",
           "Your car turns faster with pitch than with yaw. For a big turn, air roll until the ball is above or below your "
           "nose, then pitch onto it. To train pitch and yaw on their own, turn on No air roll." },
+        { "Play upside down and sideways.",
+          "In a match you're rarely upright when you reach the ball. Now and then, air roll onto your roof or your side and "
+          "play the run from there. Pulling back still lifts the nose, but upside down that points it at the ground on your "
+          "screen: that's the feel worth learning." },
         { "Watch the best runs.",
           "Press Watch on the Leaderboard page to see a top run in your game. Look at how smoothly the car moves, and how "
           "early it slows down before it reaches the ball." },
