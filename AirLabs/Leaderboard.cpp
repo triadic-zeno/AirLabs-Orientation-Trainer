@@ -11,6 +11,7 @@
 #include "AirLabs.h"
 #include "bakkesmod/wrappers/http/HttpWrapper.h"
 #include "bakkesmod/wrappers/UniqueIDWrapper.h"
+#include "bakkesmod/wrappers/MMRWrapper.h"
 #include "bakkesmod/wrappers/Engine/UnrealStringWrapper.h"
 
 #include <algorithm>
@@ -603,6 +604,29 @@ void AirLabs::EndReplay()
     lbStatus = "Replay finished: " + playName + ", " + Thousands(play.score) + ".";
     lbStatusGood = true;
     lbStatusWall = Wall();
+}
+
+// What the game tells us about your own Rocket League rank, written to the console (and
+// bakkesmod.log). Playlists: 10 = 1v1, 11 = 2v2, 13 = 3v3. Tier 0 = unranked, 1 = Bronze I ..
+// 22 = Supersonic Legend; division 0-3 = Div I-IV.
+void AirLabs::LogRealRank(const std::string& when)
+{
+    gameWrapper->Execute([this, when](GameWrapper* gw) {
+        std::string line = "[AirLabs] rank check (" + when + "):";
+        MMRWrapper mmr = gw->GetMMRWrapper();
+        if (mmr.memory_address == 0) { cvarManager->log(line + " no MMR data at all"); return; }
+        UniqueIDWrapper uid = gw->GetUniqueID();
+        if (mmr.IsSyncing(uid)) line += " (syncing)";
+        for (int pl : { 10, 11, 13 })
+        {
+            const bool synced = mmr.IsSynced(uid, pl);
+            const SkillRank r = mmr.GetPlayerRank(uid, pl);
+            const float v = mmr.GetPlayerMMR(uid, pl);
+            line += " | playlist " + std::to_string(pl) + (synced ? " synced" : " NOT synced") + ", tier " + std::to_string(r.Tier) +
+                    ", div " + std::to_string(r.Division) + ", games " + std::to_string(r.MatchesPlayed) + ", mmr " + std::to_string(static_cast<int>(v));
+        }
+        cvarManager->log(line);
+    });
 }
 
 void AirLabs::RefreshKeys()

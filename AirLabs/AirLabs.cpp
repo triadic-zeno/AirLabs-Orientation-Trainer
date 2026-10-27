@@ -402,6 +402,7 @@ void AirLabs::onLoad()
     notifier("airlabs_space", [this] { SetCvarI("airlabs_map", 0); LoadSpaceMap(); }, "Go to the AirLabs space map (Freeplay, car held in the air); Start takes you there from now on");
     notifier("airlabs_standard", [this] { SetCvarI("airlabs_map", 1); LoadStandardMap(); }, "Go back to the standard field (DFH Stadium Freeplay); Start uses it from now on");
     notifier("airlabs_menu", [this] { ToggleWindow(); }, "Open or close the AirLabs window (bind it: bind O airlabs_menu)");
+    notifier("airlabs_rank", [this] { LogRealRank("asked"); }, "Print your Rocket League rank as the game reports it (1v1, 2v2, 3v3)");
     cvarManager->registerNotifier("airlabs_watch", [this](std::vector<std::string> args) {
         if (args.size() > 1) WatchReplay(std::atoi(args[1].c_str()));
     }, "Watch a leaderboard run's replay: airlabs_watch <run number>", PERMISSION_ALL);
@@ -413,6 +414,9 @@ void AirLabs::onLoad()
     LoadSavedPresets();
     LoadLeaderboardFile();
     SchedulePendingRetry(15.f); // runs left over from a session without internet go up soon after loading
+    // Does the game know your Rocket League rank? (Logged so it can be checked; see LogRealRank.)
+    gameWrapper->SetTimeout([this](GameWrapper*) { LogRealRank("30 s after loading"); }, 30.f);
+    gameWrapper->SetTimeout([this](GameWrapper*) { LogRealRank("3 min after loading"); }, 180.f);
     {
         std::error_code ec;
         haveSpaceMap = std::filesystem::exists(SpaceMapPath(), ec);
@@ -932,6 +936,7 @@ void AirLabs::BeginRunning(const Basis& b, const DrillSettings& s)
 void AirLabs::EndRun(CarWrapper car, const Basis& b, const DrillSettings& s)
 {
     if (hybridTracking) EndHybridRep(s); // count the part-finished tracking
+    LogRealRank("after a run");
 
     RunResult r;
     r.valid = true;

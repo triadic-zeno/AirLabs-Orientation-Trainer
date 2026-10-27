@@ -262,6 +262,7 @@ private:
     // Your keys for the prompts, read from bakkesmod/cfg/binds.cfg ("" = not bound).
     std::string menuKey, toggleKey;
     void RefreshKeys();
+    void LogRealRank(const std::string& when); // your Rocket League rank, as the game reports it, to the console
 
     // flick
     double spawnTime = 0.0, nextSpawnAt = 0.0, lockStart = 0.0, firstReach = 0.0;
