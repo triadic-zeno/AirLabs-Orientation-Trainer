@@ -22,9 +22,6 @@ namespace airlabs
         { "Roll, then pitch.",
           "Your car turns faster with pitch than with yaw. For a big turn, air roll until the ball is above or below your "
           "nose, then pitch onto it. To train pitch and yaw on their own, turn on No air roll." },
-        { "Turn on the laser.",
-          "A line out of your car shows exactly where you're aiming: red off the ball, yellow close, green on it. Switch it "
-          "on in Assists, or bind L airlabs_laser_toggle." },
         { "Watch the best runs.",
           "Press Watch on the Leaderboard page to see a top run in your game. Look at how smoothly the car moves, and how "
           "early it slows down before it reaches the ball." },

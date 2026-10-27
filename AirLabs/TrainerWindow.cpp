@@ -912,12 +912,15 @@ void AirLabs::WinPlay()
                      m == kTrack ? "Best" : nullptr)) SetCvarI("airlabs_mode", m);
             ImGui::PopID();
         }
-        // No air roll: a variant of every mode, with its own records.
+        // No air roll (a variant of every mode, with its own records) and the laser (an assist,
+        // here so it's easy to find), with their explanations lined up.
         ImGui::Dummy(ImVec2(0, 2));
+        const float chipsX = ImGui::GetCursorPosX();
+        const float textX = chipsX + std::max(ChipWidth(bold, "No air roll: OFF"), ChipWidth(bold, "Laser: OFF")) + 14.f;
         const bool noRollOn = noAirRoll && *noAirRoll;
         if (Chip("##noroll", noRollOn ? "No air roll: ON" : "No air roll: OFF", noRollOn, bold))
             SetCvarI("airlabs_noroll", noRollOn ? 0 : 1);
-        ImGui::SameLine(0, 12);
+        ImGui::SameLine(textX);
         {
             FontScope f(small);
             ImGui::AlignTextToFramePadding();
@@ -925,6 +928,16 @@ void AirLabs::WinPlay()
                 ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kWarn), "Not used with wheels aim: aiming with your wheels needs air roll.");
             else
                 ImGui::TextDisabled("Air roll does nothing during runs: turn with pitch and yaw only. Scores go to separate No air roll records.");
+        }
+        ImGui::SetCursorPosX(chipsX);
+        const bool laserOn = laserEnabled && *laserEnabled;
+        if (Chip("##laser", laserOn ? "Laser: ON" : "Laser: OFF", laserOn, bold)) SetCvarI("airlabs_laser", laserOn ? 0 : 1);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Red off the ball, yellow close, green on it. More laser settings in Assists.");
+        ImGui::SameLine(textX);
+        {
+            FontScope f(small);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("A line out of your car's nose that shows exactly where you're aiming (also in Assists). Best played with it off.");
         }
     }
 
