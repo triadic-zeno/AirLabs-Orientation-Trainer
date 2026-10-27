@@ -91,13 +91,3 @@ export function allBoards() {
   return out;
 }
 
-export function marks(mode, preset, range) {
-  return data.marks[mode][preset][presetUsesRange(mode, preset) ? range : 0];
-}
-export function tierIndex(score, mode, preset, range) {
-  const m = marks(mode, preset, range);
-  let t = 0;
-  for (let i = 0; i < m.length; i++) if (score >= m[i]) t = i + 1;
-  return t;
-}
-export function proMark(mode, preset, range) { const m = marks(mode, preset, range); return m[m.length - 1]; }

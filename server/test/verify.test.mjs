@@ -109,7 +109,7 @@ test('hits claimed earlier than they happened are flagged, and scored as they ha
   assert.ok(r.ok && r.flags.includes('events'), String(r.flags));
 });
 
-test('a perfect Track run is flagged as far past the human limit', () => {
+test('a perfect Track run goes up as it is', () => {
   // Point the car exactly at the ball every tick: physically possible on Track, but no human does it.
   const b = copy(fixtures['1-1-1-0']);
   const v = view(b);
@@ -125,7 +125,9 @@ test('a perfect Track run is flagged as far past the human limit', () => {
     score += 1000 / 120;
   }
   v.setInt32(40, Math.round(score), true);
-  assert.ok(check(b).flags.includes('beyond-pro'));
+  const res = check(b);
+  assert.equal(res.ok, true);
+  assert.ok(res.score > 59000, String(res.score));
 });
 
 test('a run with the wrong ball distance for its preset is turned away', () => {

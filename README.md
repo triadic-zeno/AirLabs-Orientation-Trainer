@@ -93,7 +93,7 @@ compiled into the DLL and written to `bakkesmod\data\fonts` when the plugin load
    attack. The car is level but turned 45 deg away from the ball, so the ball is on
    screen to the side (Flip Reset's ball sits above, on the goal side). Turn onto it and
    point at it for **1.5 seconds** and the run begins. Looking away resets the countdown.
-3. When the minute is up you get your results: score, tier, your rank, comparison with your
+3. When the minute is up you get your results: score, comparison with your
    personal best, and a breakdown. The car and ball reset straight away, with the
    results still on screen. After a 1-second pause you can turn onto the ball to go
    again. No menu needed. Press Stop (or your `airlabs_toggle` key) to finish.
@@ -208,9 +208,6 @@ and free air roll are all blocked; jump and boost stay blocked as usual.
 
 - **Own records.** No air roll runs are saved with their own best scores, beside the normal
   ones. Stats > Records has a **Show No air roll records** button to switch between them.
-- **Same tiers.** The tier marks are the same as for normal runs. The player model the marks
-  come from (see "How the ranks were worked out") already turns the nose with pitch and yaw
-  alone, so blocking air roll doesn't change what each tier can score.
 - **Nose aim only.** Aiming with your wheels needs air roll, so No air roll isn't used when a
   run aims with the wheels.
 
@@ -224,7 +221,7 @@ Every preset comes in three ranges, picked with the Range buttons under the pres
 | Medium | 600 uu | 9.0 deg |
 | Long | 900 uu | 6.0 deg |
 
-**Each range is its own competition**, with its own personal bests, tiers, progress
+**Each range is its own competition**, with its own personal bests, leaderboard, progress
 graph and skill-profile data, because a closer ball is a bigger target. Stats > Records and
 Stats > Overview have Range buttons too. **Flip Reset is the exception:** it always puts
 the ball 350 uu away (15.6 deg) and has one set of records.
@@ -257,11 +254,11 @@ ball's edge. A closer ball is a bigger target and easier to hit.
   **"Custom (based on <preset>)"**, starting from the preset's values. **Back to
   preset** returns to it. Plain Custom runs are marked **"Custom: practice only"** and
   don't count toward records.
-- **Save a Custom setup as your own preset.** The Save as preset button above the
-  Customise drawer stays dark until you change a setting; then type a name and press
+- **Save a Custom setup as your own preset.** The Save as preset button at the bottom of
+  the Play page stays dark until you change a setting; then type a name and press
   it (or Enter). The preset appears in the **My presets** row and gets its own records:
-  personal best, run count, last-10 average and a progress graph (no tiers, because
-  there's no reference for your settings). Like everything else, its targets are random
+  personal best, run count, last-10 average and a progress graph (they're not on the
+  leaderboard, because nobody else has your settings). Like everything else, its targets are random
   every run.
 - **Saved presets are locked.** Change a setting while one is selected and the run
   becomes Custom based on it, which you can save as a new preset. That way a preset's
@@ -322,121 +319,10 @@ your own range in degrees above the horizon.
   25 degrees is several ball-widths away and paying for it would reward roughly pointing the
   right way. (Track, Chase and Hybrid's tracking part.)
 - **Hybrid:** flick points plus tracking points for each rep; a missed flick costs 500 points, as in Flick.
-- **Tiers** are named after Rocket League's ranks: Bronze, Silver, Gold, Platinum,
-  Diamond, Champion and Grand Champion, each with divisions I, II and III, then Supersonic
-  Legend, then **Pro**: the highest score a human can plausibly get. A run's tier is what
-  that one score is worth. See "Ranks" and "How the ranks were worked out" below.
-
-## Ranks
-
-Every preset has **your rank** for each range (and for No air roll): one rank built from all
-your runs on it, so one great run moves it a little instead of jumping it. It shows on the
-preset buttons ("Control  GC1"), on the Up Next card, after each run ("Your rank: Champion
-III (+1 division)") and in Stats > Records.
-
-- **Placements.** Your first 10 runs on a preset are placements: the rank is the plain
-  average of those runs, and the button shows "3/10" until you've done them.
-- **After that, a weighted average.** Each run counts for 10% and everything before it for
-  90%, so your last ~10 runs carry most of the weight and older runs fade out. Your rank
-  follows how you play now, not your best day.
-- **Flukes are capped.** One run can pull your rank at most one full rank (three divisions)
-  towards itself before the 10% weighting, so a fluke Grand Champion III run on a Champion II
-  rank moves you up about a third of a division, and a disaster run (a 0 after a disconnect,
-  say) costs about the same.
-- **How a run is scored on the way in:** where the score sits between the division marks,
-  so a score halfway between Champion II and Champion III counts as halfway, not as
-  Champion II.
-- Saved presets and Custom runs have no rank (no marks to compare against).
-- **Pro** sits above Supersonic Legend: the score of a player at human limits, where the best
-  pros would be. It's meant to be the ceiling, not a rank most players reach.
-
-**Rank icons.** AirLabs draws a coloured badge ("GC1") by default. To use your own icons, put
-PNG files (transparent background, about 128x128) in
-`%APPDATA%\bakkesmod\bakkesmod\data\AirLabs\ranks\`, named one per division:
-`bronze_1.png`, `bronze_2.png`, `bronze_3.png`, `silver_1.png` ... `grand_champion_3.png`,
-then `supersonic_legend.png` and `pro.png`; or one per rank (`bronze.png` ...
-`grand_champion.png`), in which case the division is drawn as 1-3 dots under the icon.
-`unranked.png` is shown next to "3/10" while you're placing. Restart Rocket League (or reload
-the plugin) after adding them. Ranks: `bronze`, `silver`, `gold`, `platinum`, `diamond`,
-`champion`, `grand_champion`, `supersonic_legend`, `pro`.
-
-## How the ranks were worked out
-
-Every preset and every range has its own marks, because a 900 uu Insane track and a 400 uu
-Small flick are completely different tests. The marks come from a simulation
-(`tools/tier_model.cpp`, which compiles against the plugin's own `TrainerCore.h`):
-
-1. **Simulated players.** A player is a control loop with human limits: reaction time,
-   visual delay (and how much of it they predict away), how hard they commit to the
-   stick, how early they brake, stick noise, how well they judge a moving ball, and how
-   they find a ball that starts off screen by following the arrow.
-2. **Real game.** Each simulated player plays every preset through the plugin's own
-   target generator, ball paths and scoring, with Rocket League's air-control physics
-   (torque, drag, the 5.5 rad/s spin cap), 24 one-minute runs per point.
-3. **Three reference players, placed on Rocket League's 2v2 MMR scale:**
-
-   | Reference | MMR | Where it comes from |
-   |---|---|---|
-   | Bronze | 200 (middle of Bronze) | ~7-8 s per target on Flick Mixed with no time limit |
-   | Grand Champion I | 1497 (middle of GC1) | Fitted to a real GC1-level controller player's runs: 10 each of Flick Mixed, Track Control, Hybrid Control and Chase Medium. The fit matches his score, targets, time per target, reaction, time on target and catch time to within ~5%. |
-   | Pro | 2600 (where the best pros peak; the 2v2 record is 2623) | The GC1 player at human limits (below) |
-
-   A player at any other MMR is a blend of the two reference players either side of it.
-4. **Marks.** Each division's mark is what a player at the MMR where that division starts in
-   Rocket League 2v2 scores (Bronze II 170, Silver I 294, Gold I 475, Platinum I 655, Diamond I
-   835, Champion I 1075, Grand Champion I 1435, GC II 1575, GC III 1715, Supersonic Legend 1863).
-   So divisions are spaced the way Rocket League spaces them: about 60 MMR per division from
-   Bronze to Platinum, 80 in Diamond, 120 in Champion and 140 in Grand Champion. **Pro** is the
-   Pro reference player's score. Per mode, the scale is nudged so the measured GC1 player's own
-   average sits exactly in the middle of Grand Champion I.
-
-**The Pro player: human limits.** Moving the GC1 player all the way to a perfect controller
-gives scores no human gets (Flick Mixed ~85,000 at 0.8 s per target, which is close to what the
-car's physics allow). So Pro stops at measured human limits:
-
-- **Pointing speed.** Fitts' law measures how fast you can land on a target as bits per second
-  (harder = further or smaller). Thumbsticks measure 1.5-2.4 bits/s in lab studies; a mouse,
-  the fastest common pointer, 3.7-4.9. The GC1 player measures ~2.3 on Flick Mixed. Pro is set
-  to 4.0: a stick player pointing as well as a typical mouse user.
-- **Reaction.** Elite gamers react in ~150-200 ms; with stick travel that's 0.25 s to the
-  plugin's reaction measure (the GC1 player: 0.34 s).
-- What follows from those lands at human limits too: ~0.12 s visual delay (0.10 s visuomotor
-  plus system latency), ~7% stick noise, ~10% error judging the ball's speed (the lab best is
-  ~5.6%).
-
-Where that puts the top of the ladder (Medium range):
-
-| Preset | GC1 | GC2 | GC3 | SSL | Pro | Pro player |
-|---|---|---|---|---|---|---|
-| Flick Mixed | 24,200 | 30,500 | 36,800 | 42,750 | 71,000 | 0.89 s per target |
-| Track Control | 45,200 | 49,600 | 54,200 | 57,400 | 59,630 | 99% on the ball |
-| Hybrid Control | 39,900 | 45,500 | 50,250 | 53,500 | 62,000 | |
-| Chase Medium | 25,800 | 27,500 | 28,900 | 30,900 | 37,200 | catches in 0.27 s |
-
-For comparison, the measured GC1 player averages 1.44 s per target on Flick Mixed and is on the
-ball 55% of the time in Track Control; a Supersonic Legend in the model takes 1.2 s per target.
-
-Notes:
-- **Flick Small** tops out: at Grand Champion most targets already earn the 2,000-point maximum,
-  so GC II to Supersonic Legend are only a few thousand points apart there.
-- **Big and Turnaround:** with the 5 s limit and the 500-point miss penalty, weaker players
-  score close to 0, so the low marks are only a few hundred points: any targets at all lift you
-  out of Bronze. The marks are fitted only to the part of the curve that isn't stuck at 0.
-- **Chase** has its own reaction model: real players can't follow a dash the moment it starts
-  (the direction is a surprise), take a moment to judge its speed, and keep turning for a while
-  after it stops.
-
-The middle ranks are the least certain part: they're a blend between the Bronze estimate and the
-measured GC1 player. The next step is real **controller** runs from players of known ranks:
-AirLabs marks keyboard runs in `runs.csv` (the `flags` column says `keyboard`) so they can be
-kept out of that. Older runs are re-graded with the current marks when the plugin loads.
-
-**Flick Small (2.7.2).** The first leaderboard runs showed the model rating Small far too hard
-for low and middle ranks: a player who is Platinum on Flick Mixed and Gold on Track came out
-Bronze I on Small. The model treats small, on-screen turns as easy, and misses the time real
-players lose settling onto the ball for the hold. Small's marks are now set from Flick Medium's,
-scaled up by how much higher Small's Pro mark is (about 1.4-1.6x, because small turns are
-quicker), rising to 1.37 times that at Bronze. The Pro mark is unchanged.
+- **How good is a score?** The leaderboard says: the Up next card shows your place on the
+  preset's board ("#3 of 10"), and the Leaderboard page shows everyone's. (Until 2.8.1 AirLabs
+  also gave every score a rank from Bronze to Pro, worked out from a model of simulated
+  players. With real players on the boards that guess wasn't needed any more, so it's gone.)
 
 ## Stats page
 
@@ -444,7 +330,7 @@ Four sub-tabs:
 
 - **Overview:** your last run with a **Copy result** button, which puts a line like
   this on your clipboard:
-  `AirLabs 2.0.0 | Track: Control (Medium) | 41,250 | Champion | 69% on target | PRESET`.
+  `AirLabs 2.8.1 | Track: Control (Medium) | 41,250 | 69% on target | PRESET`.
   Below it is your **skill profile**: a six-axis radar built from your last 10 counted
   runs on each built-in preset at the chosen range. Every axis shows the real number
   behind it:
@@ -459,10 +345,9 @@ Four sub-tabs:
   **Trend** card comparing your last 5 runs with the 5 before. Then your **tracking ceiling** (the
   fastest steady Track preset where you've held 75% on target) and your **speed
   curve** (from your last Track Dynamic run, how well you stayed on at each speed).
-- **Records:** pick a mode to see a table of every preset with your rank, best score
-  and the best's tier, number of runs and last-10 average, with your saved presets for
-  that mode in a **My presets** table underneath. Click a row for its progress graph,
-  the points to the next tier and every tier mark.
+- **Records:** pick a mode to see a table of every preset with your best score, number of
+  runs and last-10 average, with your saved presets for that mode in a **My presets** table
+  underneath. Click a row for its progress graph.
 - **Directions:** your recent flick time in each direction from the driver's seat,
   for nose aim or wheels aim. Green = faster than your average, red = a weak spot.
   Bigger turns are scaled so every direction compares fairly.
@@ -567,11 +452,9 @@ PC clock if it ever looks wrong; the Readout shows which is in use.
 
 ## Tuning presets
 
-All presets, par times and tier marks are in `AirLabs/TrainerCore.h` (`kFlickPresets`,
-`kTrackPresets`, `kHybridPresets`, `kChasePresets`, `kParReaction`, `kParFactor`,
-`kTierFlick`, `kTierTrack`, `kTierHybrid`, `kTierChase`). After changing a preset,
-regenerate its tier marks with `tools/tier_model.cpp` (instructions at the top of that
-file).
+All presets and par times are in `AirLabs/TrainerCore.h` (`kFlickPresets`,
+`kTrackPresets`, `kHybridPresets`, `kChasePresets`, `kParReaction`, `kParFactor`). Changing a
+preset changes what its scores mean, so its leaderboard should start again (a new board).
 
 ## How the pin works
 

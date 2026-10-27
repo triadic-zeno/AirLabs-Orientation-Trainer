@@ -12,7 +12,7 @@
 //
 // Plugin requests add ?format=text and get "key value" lines (rows tab-separated), so the
 // plugin needs no JSON parser. Everything else is JSON.
-import { boardKey, boardTitle, parseBoard, allBoards, tierIndex, DATA } from './core.js';
+import { boardKey, boardTitle, parseBoard, allBoards, DATA } from './core.js';
 import { parseReplay, fromBase64, toBase64, deflate, inflate, packReplay, unpackReplay } from './replay.js';
 import { verifyReplay } from './verify.js';
 import { PAGE } from './page.js';
@@ -335,7 +335,7 @@ async function getBoard(env, key, url, text) {
   }
   const rank = (v) => (v === null || v === undefined ? null : { tier: v >> 2, div: v & 3 });
   const entries = results.map((x, i) => ({
-    pos: i + 1, pid: x.pid, name: x.name, platform: x.platform, score: x.score, tier: tierIndex(x.score, b.mode, b.preset, b.range),
+    pos: i + 1, pid: x.pid, name: x.name, platform: x.platform, score: x.score,
     date: day(x.created), run: x.run, targets: x.targets, misses: x.misses, onPct: x.on_pct, avgTime: x.avg_time,
     replay: x.has_replay > 0, ranks: [rank(x.rank1), rank(x.rank2), rank(x.rank3)],
   }));

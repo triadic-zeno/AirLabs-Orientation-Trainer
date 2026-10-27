@@ -1,5 +1,5 @@
 // Writes the numbers the leaderboard server needs from AirLabs/TrainerCore.h (presets, run
-// rules, scoring constants and rank marks) as a JavaScript module, so the server and the plugin
+// rules, scoring constants and Rocket League rank names) as a JavaScript module, so the server and the plugin
 // can't drift apart. The deploy workflow rebuilds this and stops if server/src/core-data.js is stale.
 // Build: g++ -std=c++20 -O1 -IAirLabs tools/dump_core.cpp -o dump_core && ./dump_core > server/src/core-data.js
 #include <cstdio>
@@ -35,7 +35,6 @@ int main()
         { "presetDelaySec", kPresetDelaySec }, { "presetRunSec", kPresetRunSec }, { "hybridTrackSec", kHybridTrackSec },
         { "hybridFlickMin", kHybridFlickMin }, { "hybridFlickMax", kHybridFlickMax }, { "chaseMoveMin", kChaseMoveMin },
         { "chaseMoveMax", kChaseMoveMax }, { "dynamicAccel", kDynamicAccel }, { "targetBallRadius", kTargetBallRadius },
-        { "placementRuns", kPlacementRuns },
     };
     for (std::size_t i = 0; i < std::size(c); ++i) std::printf("    %s: %s,\n", Str(c[i].k).c_str(), Num(c[i].v).c_str());
     std::printf("    \"rangeDistance\": [%s, %s, %s]\n  },\n", Num(kRangeDistance[0]).c_str(), Num(kRangeDistance[1]).c_str(), Num(kRangeDistance[2]).c_str());
@@ -68,26 +67,7 @@ int main()
     for (int t = 0; t < kTierCount; ++t) std::printf("%s%s", Str(TierName(t)).c_str(), t + 1 < kTierCount ? ", " : "");
     std::printf("],\n  \"tierShort\": [");
     for (int t = 0; t < kTierCount; ++t) std::printf("%s%s", Str(TierShort(t)).c_str(), t + 1 < kTierCount ? ", " : "");
-    std::printf("],\n");
-    // marks[mode][preset][range] = the score needed for tiers 1..22 (Bronze I needs 0).
-    std::printf("  \"marks\": [\n");
-    for (int mode = 0; mode < kModeCount; ++mode)
-    {
-        std::printf("    [\n");
-        for (int p = 0; p < PresetCount(mode); ++p)
-        {
-            std::printf("      [");
-            for (int r = 0; r < kRangeCount; ++r)
-            {
-                std::printf("[");
-                for (int t = 1; t < kTierCount; ++t)
-                    std::printf("%s%s", Num(TierThreshold(mode, p, r, t)).c_str(), t + 1 < kTierCount ? "," : "");
-                std::printf("]%s", r + 1 < kRangeCount ? ", " : "");
-            }
-            std::printf("]%s\n", p + 1 < PresetCount(mode) ? "," : "");
-        }
-        std::printf("    ]%s\n", mode + 1 < kModeCount ? "," : "");
-    }
-    std::printf("  ]\n};\n");
+    std::printf("]\n");
+    std::printf("};\n");
     return 0;
 }

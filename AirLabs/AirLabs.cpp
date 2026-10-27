@@ -226,14 +226,6 @@ namespace
         return f;
     }
 
-    // "  GC1" after a preset name, "  5/10" while placing, nothing before the first run.
-    std::string RankSuffix(const RankState& rs)
-    {
-        if (rs.runs <= 0) return "";
-        if (RankPlacing(rs)) return "  " + std::to_string(rs.runs) + "/" + std::to_string(kPlacementRuns);
-        return std::string("  ") + TierShort(TierFromValue(rs.value));
-    }
-
     bool Choice(const char* label, bool selected, const ImVec2& size)
     {
         const ImVec4 accent(0.16f, 0.47f, 0.86f, 1.f);
@@ -281,7 +273,7 @@ namespace
     struct GraphMark { float value; const char* name; };
 
     // Score graph: the scores of a preset's runs, oldest on the left, with the score axis down
-    // the left side, faint tier lines, a gold dot on your best run, and the exact score of any
+    // the left side, any marked scores as faint lines, a gold dot on your best run, and the exact score of any
     // run when you hover over it. firstRun is the run number of v[0].
     void ScoreGraph(const char* id, const float* v, int n, int firstRun, const std::vector<GraphMark>& marks, ImVec2 size)
     {
@@ -301,7 +293,7 @@ namespace
 
         const ImU32 colText = IM_COL32(170, 178, 190, 255), colGrid = IM_COL32(255, 255, 255, 28);
         const ImU32 colAxis = IM_COL32(255, 255, 255, 90), colLine = IM_COL32(90, 170, 255, 255);
-        const ImU32 colBest = IM_COL32(255, 200, 60, 255), colTier = IM_COL32(255, 200, 60, 60);
+        const ImU32 colBest = IM_COL32(255, 200, 60, 255), colMark = IM_COL32(255, 200, 60, 60);
         const float labelW = ImGui::CalcTextSize(FmtInt(static_cast<long long>(hi)).c_str()).x + 12.f;
         const float lineH = ImGui::GetTextLineHeight();
         const ImVec2 p0(origin.x + labelW, origin.y + lineH * 0.5f);
@@ -319,14 +311,14 @@ namespace
             ImVec2 ts = ImGui::CalcTextSize(label.c_str());
             dl->AddText(ImVec2(p0.x - ts.x - 6.f, y - 0.5f * ts.y), colText, label.c_str());
         }
-        // Tier lines that fall inside the range, named at the right.
+        // Marked scores that fall inside the range, named at the right.
         for (const auto& m : marks)
         {
             if (m.value <= lo || m.value >= hi) continue;
             float y = yOf(m.value);
-            dl->AddLine(ImVec2(p0.x, y), ImVec2(p1.x, y), colTier, 1.5f);
+            dl->AddLine(ImVec2(p0.x, y), ImVec2(p1.x, y), colMark, 1.5f);
             ImVec2 ts = ImGui::CalcTextSize(m.name);
-            dl->AddText(ImVec2(p1.x - ts.x - 4.f, y - ts.y - 1.f), colTier | IM_COL32(0, 0, 0, 255), m.name);
+            dl->AddText(ImVec2(p1.x - ts.x - 4.f, y - ts.y - 1.f), colMark | IM_COL32(0, 0, 0, 255), m.name);
         }
         dl->AddLine(ImVec2(p0.x, p0.y), ImVec2(p0.x, p1.y), colAxis);
         dl->AddLine(ImVec2(p0.x, p1.y), ImVec2(p1.x, p1.y), colAxis);
@@ -957,11 +949,10 @@ void AirLabs::EndRun(CarWrapper car, const Basis& b, const DrillSettings& s)
     r.noRoll = s.noRoll;
     if (s.noRoll) r.flags += "noroll ";
     if (runSkipped) r.flags += "skipped a target ";
-    // Marked so tier calibration can use controller runs only. (It doesn't affect the score.)
+    // Marked so keyboard runs can be told apart. (It doesn't affect the score.)
     if (run.inputTicks > 240 && run.analogTicks < run.inputTicks / 50) r.flags += "keyboard ";
     r.counted = (!s.custom || s.userPreset > 0) && !runSkipped; // saved presets keep their own records
     r.score = static_cast<int>(std::lround(run.score));
-    if (!s.custom) r.tier = TierIndex(static_cast<float>(r.score), s.mode, s.preset, s.range);
     r.targets = run.targets;
     r.misses = run.misses;
     r.hybReps = run.hybReps;
@@ -996,7 +987,6 @@ void AirLabs::EndRun(CarWrapper car, const Basis& b, const DrillSettings& s)
         r.newBest = r.counted && (r.prevBest < 0 || r.score > r.prevBest);
         r.share = BuildShareLine(r);
         AddRecordLocked(rec);
-        if (r.counted && r.userPreset == 0) r.rank = RankForLocked(r.mode, r.preset, r.range, 0, r.noRoll);
         lastResult = r;
         ++sessionRuns;
     }
@@ -1588,19 +1578,6 @@ std::filesystem::path AirLabs::DataDir() const
     return std::filesystem::path(gameWrapper->GetDataFolderW()) / "AirLabs";
 }
 
-RankState AirLabs::RankForLocked(int mode, int preset, int range, int userPreset, bool noRoll) const
-{
-    if (userPreset > 0 || preset < 0 || preset >= PresetCount(mode)) return RankState{};
-    auto it = rankState.find(RunKey(mode, preset, range, 0, noRoll));
-    return it != rankState.end() ? it->second : RankState{};
-}
-
-RankState AirLabs::RankFor(int mode, int preset, int range, int userPreset, bool noRoll)
-{
-    std::lock_guard<std::mutex> lock(recordsMutex);
-    return RankForLocked(mode, preset, range, userPreset, noRoll);
-}
-
 std::filesystem::path AirLabs::SpaceMapPath() const
 {
     return DataDir() / "AirLabs_Space.udk";
@@ -1977,12 +1954,7 @@ void AirLabs::LoadRecords()
             // Mode 3 was the old Rebound mode (removed in 1.5) until Chase took the number in 2.1.
             if (r.mode == kChase && VersionBefore(r.version, 2, 1)) continue;
             if (r.mode < 0 || r.mode >= kModeCount) continue;
-            // Tiers are worked out again from the score, so older runs use the current marks
-            // (1.9.2 replaced the placeholder marks and renamed the top tiers).
-            if (r.userPreset == 0 && r.preset >= 0 && r.preset < PresetCount(r.mode) && r.range >= 0)
-                r.tier = TierIndex(static_cast<float>(r.score), r.mode, r.preset, r.range);
-            else if (r.userPreset > 0 || r.preset >= PresetCount(r.mode))
-                r.tier = -1;
+            r.tier = -1; // AirLabs ranks are gone (2.8.1); the column stays in runs.csv
             AddRecordLocked(r);
         }
     }
@@ -2002,8 +1974,6 @@ void AirLabs::AddRecordLocked(const RunRecord& r)
         key = RecordKey(r.mode, r.preset, r.range);
     }
     if (r.NoRoll()) key += kNoRollKey;
-    // Your rank on this preset: saved presets have no ranks.
-    if (r.userPreset == 0) RankUpdate(rankState[key], RankValue(static_cast<float>(r.score), r.mode, r.preset, r.range));
     auto it = bestScore.find(key);
     if (it == bestScore.end() || r.score > it->second) bestScore[key] = r.score;
     ++runCount[key];
@@ -2038,7 +2008,6 @@ std::string AirLabs::BuildShareLine(const RunResult& r) const
 {
     std::string line = std::string("AirLabs ") + kVersion + " | " + ModeName(r.mode) + ": " +
                        const_cast<AirLabs*>(this)->RunLabel(r.mode, r.preset, r.range, r.userPreset) + (r.noRoll ? " (No air roll)" : "") + " | " + FmtInt(r.score);
-    if (r.counted && r.tier >= 0) line += std::string(" | ") + TierName(r.tier);
     switch (r.mode)
     {
     case kFlick:
@@ -2389,27 +2358,7 @@ void AirLabs::Render(CanvasWrapper canvas)
         add(FmtInt(r.score), kColText, 3.0f);
         if (r.counted)
         {
-            if (r.tier >= 0) // saved presets have no tiers, just personal bests
-            {
-                std::string tier = TierName(r.tier);
-                if (r.tier < kTierCount - 1)
-                {
-                    float next = TierThreshold(r.mode, r.preset, r.range, r.tier + 1);
-                    tier += "   (" + FmtInt(static_cast<long long>(std::ceil(next - r.score))) + " to " + TierName(r.tier + 1) + ")";
-                }
-                add(tier, kColTitle);
-            }
-            else add("My preset: " + RunLabel(r.mode, r.preset, r.range, r.userPreset), kColTitle);
-            if (r.rank.runs > 0)
-            {
-                // Your rank on this preset (a weighted average of your runs), and how this run moved it.
-                const char* now = TierName(TierFromValue(r.rank.value));
-                if (RankPlacing(r.rank))
-                    add(Fmt("Placement %d/", r.rank.runs) + std::to_string(kPlacementRuns) + "   so far: " + now, kColGold, 1.3f);
-                else
-                    add(std::string("Your rank: ") + now + Fmt("   (%+.2f division)", r.rank.lastDelta * 3.f),
-                        r.rank.lastDelta >= 0.f ? kColGood : kColWarn, 1.3f);
-            }
+            if (r.userPreset > 0) add("My preset: " + RunLabel(r.mode, r.preset, r.range, r.userPreset), kColTitle);
             if (r.newBest) add(r.prevBest < 0 ? "Your first score on this preset" : "New personal best!  (" + FmtSigned(r.score - r.prevBest) + ")", kColGood);
             else add("Personal best " + FmtInt(r.prevBest) + "  (" + FmtSigned(r.score - r.prevBest) + ")", kColDim);
         }
@@ -2558,8 +2507,7 @@ void AirLabs::Render(CanvasWrapper canvas)
         const double total = play.samples.empty() ? 0.0 : play.samples.back().ms / 1000.0;
         const double at = playTick < play.samples.size() ? play.samples[playTick].ms / 1000.0 : total;
         add(FmtClock(std::max(0.0, total - at)) + " left      Score " + FmtInt(std::llround(playScore)));
-        const int tier = TierIndex(static_cast<float>(play.score), play.mode, play.preset, play.range);
-        add("Final score " + FmtInt(play.score) + "   " + TierName(tier), kColGold, 1.2f);
+        add("Final score " + FmtInt(play.score), kColGold, 1.2f);
         if (play.mode == kHybrid) add(hybridTracking ? "TRACK IT" : "FLICK", kColWarn, 1.2f);
         add(!toggleKey.empty() ? "Stop watching: press " + toggleKey
             : !menuKey.empty() ? "Stop watching: press " + menuKey + ", then Stop"
@@ -2614,11 +2562,10 @@ void AirLabs::DrawReplayOver(CanvasWrapper& canvas, const Vector2& screen)
     std::string label = std::string(ModeName(play.mode)) + "  |  " + PresetRangeLabel(play.mode, play.preset, play.range);
     if (play.aim == 1) label += "  |  wheels";
     if (play.flags & kRfNoRoll) label += "  |  NO AIR ROLL";
-    const int tier = TierIndex(static_cast<float>(play.score), play.mode, play.preset, play.range);
     std::vector<HudLine> L;
     L.push_back({ "REPLAY OVER  |  " + label, kColTitle, 1.4f });
     L.push_back({ who, kColText, 2.2f });
-    L.push_back({ "Final score " + FmtInt(play.score) + "   " + TierName(tier), kColGold, 1.2f });
+    L.push_back({ "Final score " + FmtInt(play.score), kColGold, 1.2f });
     L.push_back({ "Watch another on the Leaderboard page", kColDim, 1.1f });
     const int x = 40, w = 460, y = static_cast<int>(screen.Y * 0.18f);
     FillRect(canvas, x - 12, y - 10, w, LinesHeight(L) + 16, kColPanel);
@@ -2799,7 +2746,7 @@ void AirLabs::TabPlay()
     if (r.valid)
     {
         ImGui::Text("Last run: %s %s   %s", ModeName(r.mode), RunLabel(r.mode, r.preset, r.range, r.userPreset).c_str(), FmtInt(r.score).c_str());
-        if (r.counted) { ImGui::SameLine(); ImGui::TextColored(kUiGood, "%s%s", r.tier >= 0 ? TierName(r.tier) : "My preset", r.newBest ? "  (new best!)" : ""); }
+        if (r.counted) { ImGui::SameLine(); ImGui::TextColored(kUiGood, "%s%s", r.userPreset > 0 ? "My preset" : "Counted", r.newBest ? "  (new best!)" : ""); }
         ImGui::SameLine();
         if (ImGui::Button("Copy result")) ImGui::SetClipboardText(r.share.c_str());
     }
@@ -2824,8 +2771,7 @@ void AirLabs::TabPlay()
     for (int p = 0; p < count; ++p)
     {
         if (PresetInDynamicGroup(s.mode, p)) { if (firstDynamic < 0) firstDynamic = p; continue; }
-        // "Control  GC1": your rank on the preset ("5/10" while placing).
-        const std::string label = PresetName(s.mode, p) + RankSuffix(RankFor(s.mode, p, s.range, 0, s.noRoll));
+        const std::string label = PresetName(s.mode, p);
         const float w = std::max(100.f, ImGui::CalcTextSize(label.c_str()).x + 24.f);
         if (!first) SameLineIfFits(w);
         first = false;
@@ -2847,7 +2793,7 @@ void AirLabs::TabPlay()
         {
             ImGui::SameLine();
             ImGui::PushID(100 + p);
-            const std::string label = PresetName(s.mode, p) + RankSuffix(RankFor(s.mode, p, s.range, 0, s.noRoll));
+            const std::string label = PresetName(s.mode, p);
             if (Choice(label.c_str(), s.preset == p, ImVec2(std::max(80.f, ImGui::CalcTextSize(label.c_str()).x + 20.f), 24))) SetCvarI(PresetCvar(s.mode), p);
             ImGui::PopID();
         }
@@ -3159,7 +3105,7 @@ void AirLabs::StatsOverview()
         if (r.counted)
         {
             ImGui::SameLine();
-            ImGui::TextColored(kUiGood, "   %s", r.tier >= 0 ? TierName(r.tier) : "My preset");
+            ImGui::TextColored(kUiGood, "   %s", r.userPreset > 0 ? "My preset" : "Counted");
             if (r.newBest) ImGui::TextColored(kUiGood, "%s", r.prevBest < 0 ? "Your first score on this preset." : ("New personal best! (" + FmtSigned(r.score - r.prevBest) + ")").c_str());
             else ImGui::TextDisabled("Personal best %s (%s)", FmtInt(r.prevBest).c_str(), FmtSigned(r.score - r.prevBest).c_str());
         }
@@ -3415,27 +3361,14 @@ void AirLabs::StatsRecords()
     }
     if (statsUserSel > 0 && std::none_of(mine.begin(), mine.end(), [this](const auto& x) { return x.first == statsUserSel; })) statsUserSel = 0;
 
-    // One table row: label, best, tier ("--" for saved presets), runs, last-10 average.
-    auto row = [&](const std::string& label, int key, bool selected, int tierPreset) -> bool {
+    // One table row: label, best, runs, last-10 average.
+    auto row = [&](const std::string& label, int key, bool selected) -> bool {
         auto best = bestScore.find(key);
         auto runs = runCount.find(key);
         auto hist = history.find(key);
         bool clicked = ImGui::Selectable(label.c_str(), selected, ImGuiSelectableFlags_SpanAllColumns);
         ImGui::NextColumn();
-        // Current rank (weighted average of your runs) and your best score's rank.
-        auto rk = rankState.find(key);
-        if (rk != rankState.end() && rk->second.runs > 0 && tierPreset >= 0)
-        {
-            if (RankPlacing(rk->second)) ImGui::TextDisabled("placing %d/%d", rk->second.runs, kPlacementRuns);
-            else ImGui::Text("%s", TierName(TierFromValue(rk->second.value)));
-        }
-        else ImGui::TextDisabled("--");
-        ImGui::NextColumn();
         ImGui::Text("%s", best != bestScore.end() ? FmtInt(best->second).c_str() : "--");
-        ImGui::NextColumn();
-        if (best != bestScore.end() && tierPreset >= 0)
-            ImGui::Text("%s", TierName(TierIndex(static_cast<float>(best->second), statsMode, tierPreset, statsRange)));
-        else ImGui::TextDisabled("--");
         ImGui::NextColumn();
         ImGui::Text("%d", runs != runCount.end() ? runs->second : 0);
         ImGui::NextColumn();
@@ -3452,13 +3385,11 @@ void AirLabs::StatsRecords()
         return clicked;
     };
     auto header = [&]() {
-        ImGui::Columns(6, "records", false);
+        ImGui::Columns(4, "records", false);
         ImGui::SetColumnWidth(0, ImGui::CalcTextSize("Dynamic Medium (my preset)").x + 24.f);
-        ImGui::SetColumnWidth(1, ImGui::CalcTextSize("Grand Champion III").x + 20.f);
+        ImGui::SetColumnWidth(1, ImGui::CalcTextSize("888,888").x + 40.f);
         ImGui::TextDisabled("Preset");       ImGui::NextColumn();
-        ImGui::TextDisabled("Your rank");    ImGui::NextColumn();
         ImGui::TextDisabled("Best");         ImGui::NextColumn();
-        ImGui::TextDisabled("Best's rank");  ImGui::NextColumn();
         ImGui::TextDisabled("Runs");         ImGui::NextColumn();
         ImGui::TextDisabled("Last 10 avg");  ImGui::NextColumn();
         ImGui::Separator();
@@ -3470,7 +3401,7 @@ void AirLabs::StatsRecords()
     {
         std::string label = (PresetUsesRange(statsMode, p) ? PresetLabel(statsMode, p) : PresetRangeLabel(statsMode, p, statsRange)) +
                             "##rec" + std::to_string(p);
-        if (row(label, RecordKey(statsMode, p, statsRange) + nr, statsUserSel == 0 && statsPreset == p, p)) { statsPreset = p; statsUserSel = 0; }
+        if (row(label, RecordKey(statsMode, p, statsRange) + nr, statsUserSel == 0 && statsPreset == p)) { statsPreset = p; statsUserSel = 0; }
     }
     ImGui::Columns(1);
 
@@ -3481,7 +3412,7 @@ void AirLabs::StatsRecords()
         for (const auto& mp : mine)
         {
             std::string label = mp.second + "##mine" + std::to_string(mp.first);
-            if (row(label, UserKey(mp.first) + nr, statsUserSel == mp.first, -1)) statsUserSel = mp.first;
+            if (row(label, UserKey(mp.first) + nr, statsUserSel == mp.first)) statsUserSel = mp.first;
         }
         ImGui::Columns(1);
     }
@@ -3501,29 +3432,8 @@ void AirLabs::StatsRecords()
         ImGui::TextDisabled("No scores yet on this preset.");
         return;
     }
-    if (userRow)
-    {
-        ImGui::Text("Best %s", FmtInt(best->second).c_str());
-        ImGui::TextDisabled("Saved presets have no tiers: beat your own best.");
-    }
-    else
-    {
-        int tier = TierIndex(static_cast<float>(best->second), statsMode, statsPreset, statsRange);
-        auto rk = rankState.find(key);
-        if (rk != rankState.end() && rk->second.runs > 0)
-        {
-            if (RankPlacing(rk->second))
-                ImGui::TextColored(kUiGood, "Placement %d/%d, so far %s", rk->second.runs, kPlacementRuns, TierName(TierFromValue(rk->second.value)));
-            else
-                ImGui::TextColored(kUiGood, "Your rank: %s", TierName(TierFromValue(rk->second.value)));
-        }
-        ImGui::Text("Best %s   %s", FmtInt(best->second).c_str(), TierName(tier));
-        if (tier < kTierCount - 1)
-        {
-            float next = TierThreshold(statsMode, statsPreset, statsRange, tier + 1);
-            ImGui::TextDisabled("%s more points for %s.", FmtInt(static_cast<long long>(std::ceil(next - best->second))).c_str(), TierName(tier + 1));
-        }
-    }
+    ImGui::Text("Best %s", FmtInt(best->second).c_str());
+    if (!userRow) ImGui::TextDisabled("Where it stands among everyone's: the Leaderboard page.");
     if (hist != history.end() && !hist->second.empty())
     {
         const auto& v = hist->second;
@@ -3531,37 +3441,12 @@ void AirLabs::StatsRecords()
         const float* start = v.data() + (v.size() - countV);
         int firstRun = static_cast<int>(v.size()) - countV + 1;
         std::vector<GraphMark> marks;
-        if (!userRow)
-        {
-            for (int t = 3; t < kSSLTier; t += 3) marks.push_back({ TierThreshold(statsMode, statsPreset, statsRange, t), TierName(t) }); // each rank's division I
-            marks.push_back({ TierThreshold(statsMode, statsPreset, statsRange, kSSLTier), TierName(kSSLTier) });
-            marks.push_back({ TierThreshold(statsMode, statsPreset, statsRange, kProTier), TierName(kProTier) });
-        }
+        if ((statsMode == kTrack || statsMode == kChase) && !userRow) marks.push_back({ 60000.f, "max 60,000" });
         ImGui::Spacing();
         ImGui::TextDisabled("Score, %s", countV < static_cast<int>(v.size()) ? ("last " + std::to_string(countV) + " runs").c_str() : "every run");
         float width = std::clamp(ImGui::GetContentRegionAvail().x, 360.f, 900.f);
         ScoreGraph("##scoregraph", start, countV, firstRun, marks, ImVec2(width, 300.f));
-        Desc(userRow ? "Each point is one run, oldest on the left. The gold dot is your best. Hover over the graph to see any run's score."
-                     : "Each point is one run, oldest on the left. The gold dot is your best, and faint lines mark the tiers. Hover over the graph to see any run's score.");
-    }
-
-    if (!userRow)
-    {
-        ImGui::Spacing();
-        // Each rank with its three division marks (I / II / III), then SSL and Pro.
-        static const char* rankNames[8] = { "Bronze", "Silver", "Gold", "Platinum", "Diamond", "Champion", "Grand Champion", "Supersonic Legend" };
-        std::string marks = "Rank marks for this preset (I / II / III):  ";
-        for (int rk = 0; rk < 7; ++rk)
-        {
-            marks += std::string(rk ? "   " : "") + rankNames[rk] + " ";
-            for (int d = 0; d < 3; ++d)
-                marks += (d ? " / " : "") + FmtInt(static_cast<long long>(TierThreshold(statsMode, statsPreset, statsRange, rk * 3 + d)));
-        }
-        marks += std::string("   ") + rankNames[7] + " " + FmtInt(static_cast<long long>(TierThreshold(statsMode, statsPreset, statsRange, kSSLTier)));
-        marks += "   Pro " + FmtInt(static_cast<long long>(TierThreshold(statsMode, statsPreset, statsRange, kProTier)));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::TextWrapped("%s", marks.c_str());
-        ImGui::PopStyleColor();
+        Desc("Each point is one run, oldest on the left. The gold dot is your best. Hover over the graph to see any run's score.");
     }
 }
 
@@ -3649,7 +3534,7 @@ void AirLabs::StatsHistory()
             ImGui::Text("%s", FmtInt(rr.score).c_str());
             ImGui::NextColumn();
             if (rr.userPreset > 0) ImGui::TextDisabled("%s", rr.counted ? "my preset" : "didn't count");
-            else if (rr.counted && rr.tier >= 0) ImGui::Text("%s", TierName(rr.tier));
+            else if (rr.counted) ImGui::Text("counted");
             else ImGui::TextDisabled("%s", rr.preset >= PresetCount(rr.mode) ? "custom"
                                            : rr.flags.find("older rules") != std::string::npos ? "older rules" : "didn't count");
             ImGui::NextColumn();
@@ -3683,7 +3568,7 @@ void AirLabs::TabHelp()
     }
 
     Heading("How a run works");
-    ImGui::TextWrapped("Pick a mode, a preset and a range on the Play tab, then press Start at the top. Your car resets to the centre with a ball between you and the goal, 45 degrees to the side of your nose: turn onto it and point at it for 1.5 seconds and the one-minute run begins. When the minute is up you get a score, a tier and how it compares with your personal best, and the car and ball reset straight away: point at the ball to go again. Press Stop (or your airlabs_toggle key) to finish.");
+    ImGui::TextWrapped("Pick a mode, a preset and a range on the Play tab, then press Start at the top. Your car resets to the centre with a ball between you and the goal, 45 degrees to the side of your nose: turn onto it and point at it for 1.5 seconds and the one-minute run begins. When the minute is up you get a score and how it compares with your personal best, and the car and ball reset straight away: point at the ball to go again. Press Stop (or your airlabs_toggle key) to finish.");
 
     Heading("Presets and Custom");
     ImGui::TextWrapped("Presets have fixed settings, so scores can be compared. The targets and ball paths are random every run, so nothing can be learnt by heart. Only preset runs count toward your records. Change any setting and the run becomes Custom: it doesn't count, but you can save it as your own preset (Play tab), which keeps its own personal bests. A preset run also doesn't count if you skip a target. Ball cam, the laser and the aim marker are all fine.");
@@ -3692,7 +3577,7 @@ void AirLabs::TabHelp()
     ImGui::TextWrapped("The target is always the ball itself: you're on target when your aim is on the ball, at any distance. A closer ball is a bigger target: Short (400 uu) is 13.6 deg, Medium (600 uu) 9.0 deg, Long (900 uu) 6.0 deg, and Flip Reset (always 350 uu) 15.6 deg. The ring around the ball shows exactly where that edge is.");
 
     Heading("Ranges");
-    ImGui::TextWrapped("Every preset comes in Short, Medium and Long. Each range is its own competition with its own personal bests, tiers and graphs, because a closer ball is easier to hit. Flip Reset always uses 350 uu and has one set of records.");
+    ImGui::TextWrapped("Every preset comes in Short, Medium and Long. Each range is its own competition with its own personal bests, graphs and leaderboard, because a closer ball is easier to hit. Flip Reset always uses 350 uu and has one set of records.");
 
     Heading("Scoring");
     ImGui::BulletText("Flick: each target is worth 1000 points at par time, up to 2000 for twice as fast. No fixed maximum.");
@@ -3700,7 +3585,7 @@ void AirLabs::TabHelp()
     ImGui::BulletText("Track: 1000 points per second on target, with partial credit just outside. Max 60,000 in a one-minute run.");
     ImGui::BulletText("Hybrid: flick points plus tracking points for each rep.");
     ImGui::BulletText("Chase: like Track, 1000 points per second on the ball, for the whole minute. Max 60,000.");
-    ImGui::BulletText("Tiers: Bronze, Silver, Gold, Platinum, Diamond, Champion, Grand Champion, Supersonic Legend. Each preset and range has its own marks.");
+    ImGui::BulletText("How good is a score? The Leaderboard page shows where it stands among everyone's.");
 
     Heading("Leaderboard");
     ImGui::TextWrapped("The Leaderboard page shows everyone's best run on every preset and range (No air roll has its own boards). Your preset runs post there under your Rocket League name: whenever a run beats your best on that board, it goes up with its replay. Don't want that? Press Stop posting on the Leaderboard page. Press Watch next to any run to see it in the game: your car and the ball follow the replay exactly, and Stop (or your airlabs_toggle key) ends it. Your best score on every preset from your saved runs goes up too, including runs from before replays were recorded (those show No replay). Next to each name are that player's Rocket League ranks in 1s, 2s and 3s, as their game reports them. The same boards are on the web too.");

@@ -550,57 +550,6 @@ void AirLabs::EnsureRankIcons()
     }
 }
 
-// The badge for a preset button or a label: your rank's icon (or a coloured "GC1" badge), the
-// unranked icon and "3/10" while placing, nothing before your first run. h is the text badge's
-// height; icons are drawn a little bigger (centred on the same line). Returns its width; draws at p.
-float AirLabs::RankBadge(const RankState& rs, float h, ImFont* font, ImDrawList* dl, ImVec2 p)
-{
-    if (rs.runs <= 0) return 0.f;
-    const bool draw = dl != nullptr;
-    const float icon = h + 8.f;
-    const float iconY = p.y + (h - icon) * 0.5f;
-    EnsureRankIcons();
-    if (RankPlacing(rs))
-    {
-        std::string txt = std::to_string(rs.runs) + "/" + std::to_string(kPlacementRuns);
-        const bool haveIcon = unrankedIcon && unrankedIcon->IsLoadedForImGui();
-        if (unrankedIcon && !haveIcon) unrankedIcon->GetImGuiTex(); // starts loading
-        const float iw = haveIcon ? icon + 3.f : 0.f;
-        const float w = iw + TextSize(font, txt.c_str()).x + 12.f;
-        if (draw)
-        {
-            if (haveIcon)
-                if (void* tex = unrankedIcon->GetImGuiTex()) dl->AddImage(tex, ImVec2(p.x, iconY), ImVec2(p.x + icon, iconY + icon));
-            dl->AddRectFilled(ImVec2(p.x + iw, p.y), ImVec2(p.x + w, p.y + h), Rgb(48, 55, 70), h * 0.5f);
-            DrawText(dl, font, ImVec2(p.x + iw + 6.f, p.y + (h - SizeOf(font)) * 0.5f), kDim, txt.c_str());
-        }
-        return w;
-    }
-    const int t = TierFromValue(rs.value);
-    if (rankIcon[t] && rankIcon[t]->IsLoadedForImGui())
-    {
-        if (draw)
-        {
-            if (void* tex = rankIcon[t]->GetImGuiTex()) dl->AddImage(tex, ImVec2(p.x, iconY), ImVec2(p.x + icon, iconY + icon));
-            if (rankIconShared[t]) // the division as pips under the icon
-                for (int d = 0; d <= t % 3; ++d)
-                    dl->AddCircleFilled(ImVec2(p.x + icon * 0.5f + (d - (t % 3) * 0.5f) * 5.f, iconY + icon - 1.5f), 1.8f, Rgb(255, 255, 255), 8);
-        }
-        return icon;
-    }
-    if (rankIcon[t]) rankIcon[t]->GetImGuiTex(); // starts loading; drawn from the next frame
-    const char* txt = TierShort(t);
-    const float w = TextSize(font, txt).x + 12.f;
-    if (draw)
-    {
-        const ImU32 col = RankColor(TierRank(t));
-        dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), col, 5.f);
-        dl->AddRect(ImVec2(p.x - 1.f, p.y - 1.f), ImVec2(p.x + w + 1.f, p.y + h + 1.f), Rgb(10, 12, 17, 220), 6.f, ImDrawCornerFlags_All, 2.f);
-        DrawText(dl, font, ImVec2(p.x + 6.f, p.y + (h - SizeOf(font)) * 0.5f), TierRank(t) >= 7 || TierRank(t) <= 3 ? Rgb(20, 22, 28) : Rgb(255, 255, 255), txt);
-    }
-    return w;
-}
-
 float AirLabs::RealRankBadge(int rank, float h, ImFont* font, ImDrawList* dl, ImVec2 p)
 {
     const float icon = h + 8.f, iconY = p.y + (h - icon) * 0.5f;
@@ -631,25 +580,6 @@ float AirLabs::RealRankBadge(int rank, float h, ImFont* font, ImDrawList* dl, Im
                  tier == 0 ? kDim : (TierRank(tier - 1) >= 7 || TierRank(tier - 1) <= 3 ? Rgb(20, 22, 28) : Rgb(255, 255, 255)), txt);
     }
     return w;
-}
-
-// A preset button with your rank on it: "Control  [GC1]".
-float AirLabs::RankChipWidth(const char* label, ImFont* font, ImFont* badgeFont, const RankState& rs, float height)
-{
-    return ChipWidth(font, label, RankBadge(rs, height - 12.f, badgeFont, nullptr, ImVec2()));
-}
-
-bool AirLabs::RankChip(const char* id, const char* label, bool selected, ImFont* font, ImFont* badgeFont, const RankState& rs, float height)
-{
-    const float bh = height - 12.f;
-    const float bw = RankBadge(rs, bh, badgeFont, nullptr, ImVec2());
-    const bool pressed = Chip(id, label, selected, font, height, false, bw);
-    if (bw > 0.f)
-    {
-        const ImVec2 q = ImGui::GetItemRectMax();
-        RankBadge(rs, bh, badgeFont, ImGui::GetWindowDrawList(), ImVec2(q.x - 10.f - bw, q.y - height + 6.f));
-    }
-    return pressed;
 }
 
 // Space | Standard: where START takes you. A pill with a sliding knob behind the chosen side.
@@ -873,29 +803,34 @@ void AirLabs::WinPlay()
             Dot(kGood);
             ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kGood), "Counts toward your records");
             ImGui::SameLine(0, 18);
-            if (best >= 0)
-            {
-                FontScope f(bold);
-                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kGold), "Best %s  \xC2\xB7  %s", FmtInt(best).c_str(),
-                                   TierName(TierIndex(static_cast<float>(best), s.mode, s.preset, s.range)));
-            }
+            if (best >= 0) { FontScope f(bold); ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kGold), "Best %s", FmtInt(best).c_str()); }
             else ImGui::TextDisabled("No best yet");
-            // Your rank on this preset (weighted average of your runs).
-            const RankState rs = RankFor(s.mode, s.preset, s.range, 0, s.noRoll);
+            // Where you stand on this preset's leaderboard (refreshed every minute while the page is open).
+            const std::string board = BoardKey(s.mode, s.preset, s.range, s.noRoll);
+            FetchBoard(board);
+            bool loaded;
+            int pos, total, top;
+            {
+                std::lock_guard<std::mutex> lock(lbMutex);
+                const LbBoard& b = lbBoards[board];
+                loaded = b.loaded; pos = b.mePos; total = b.total; top = b.rows.empty() ? 0 : b.rows[0].score;
+            }
             ImGui::AlignTextToFramePadding();
-            if (rs.runs == 0) ImGui::TextDisabled("No rank yet: your first %d runs are placements", kPlacementRuns);
-            else
+            if (loaded && pos > 0)
             {
                 FontScope f(bold);
-                ImGui::TextUnformatted(RankPlacing(rs) ? "Placing" : "Your rank");
+                ImGui::TextUnformatted("Leaderboard");
                 ImGui::SameLine(0, 8);
-                const ImVec2 at = ImGui::GetCursorScreenPos();
-                const float bw = RankBadge(rs, 22.f, small, ImGui::GetWindowDrawList(), ImVec2(at.x, at.y + 1.f));
-                ImGui::Dummy(ImVec2(bw, 22.f));
-                ImGui::SameLine(0, 8);
-                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(RankColor(TierRank(TierFromValue(rs.value)))), "%s%s",
-                                   RankPlacing(rs) ? "so far " : "", TierName(TierFromValue(rs.value)));
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(pos == 1 ? kGold : kText), "#%d of %d", pos, total);
+                if (pos > 1 && top > 0)
+                {
+                    ImGui::SameLine(0, 10);
+                    FontScope fs(small);
+                    ImGui::TextDisabled("top score %s", FmtInt(top).c_str());
+                }
             }
+            else if (loaded && total > 0) ImGui::TextDisabled("Leaderboard: %d %s, top score %s", total, total == 1 ? "player" : "players", FmtInt(top).c_str());
+            else if (loaded) ImGui::TextDisabled("Nobody's on this leaderboard yet: the top spot is open");
         }
         ImGui::PopTextWrapPos();
         ImGui::EndGroup();
@@ -1004,11 +939,10 @@ void AirLabs::WinPlay()
         for (int p = 0; p < count; ++p)
         {
             if (PresetInDynamicGroup(s.mode, p)) { if (firstDynamic < 0) firstDynamic = p; continue; }
-            const RankState rs = RankFor(s.mode, p, s.range, 0, s.noRoll);
-            if (!first) SameLineIfRoom(RankChipWidth(PresetName(s.mode, p), bold, small, rs, 34.f));
+            if (!first) SameLineIfRoom(ChipWidth(bold, PresetName(s.mode, p)));
             first = false;
             ImGui::PushID(p);
-            if (RankChip("##c", PresetName(s.mode, p), !s.custom && s.preset == p, bold, small, rs, 34.f)) SetCvarI(PresetCvar(s.mode), p);
+            if (Chip("##c", PresetName(s.mode, p), !s.custom && s.preset == p, bold, 34.f)) SetCvarI(PresetCvar(s.mode), p);
             ImGui::PopID();
         }
         if (firstDynamic >= 0)
@@ -1034,8 +968,7 @@ void AirLabs::WinPlay()
             {
                 ImGui::SameLine(0, 8);
                 ImGui::PushID(200 + p);
-                const RankState rs = RankFor(s.mode, p, s.range, 0, s.noRoll);
-                if (RankChip("##d", PresetName(s.mode, p), s.preset == p, small, small, rs, 28.f)) SetCvarI(PresetCvar(s.mode), p);
+                if (Chip("##d", PresetName(s.mode, p), s.preset == p, small, 28.f)) SetCvarI(PresetCvar(s.mode), p);
                 ImGui::PopID();
             }
         }
@@ -1072,7 +1005,7 @@ void AirLabs::WinPlay()
             FontScope f(small);
             ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + width);
             if (s.custom && s.userPreset > 0)
-                ImGui::TextDisabled("Your saved preset. Its runs count toward its own personal bests and progress (no tiers). It's locked: change a setting and it becomes Custom, which you can save as a new preset.");
+                ImGui::TextDisabled("Your saved preset. Its runs count toward its own personal bests and progress (no leaderboard). It's locked: change a setting and it becomes Custom, which you can save as a new preset.");
             else
                 ImGui::TextDisabled("%s", PresetBlurb(s.mode, s.custom ? count : s.preset));
             ImGui::PopTextWrapPos();

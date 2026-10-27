@@ -219,73 +219,10 @@ int main()
     std::printf("== Par times ==\n");
     for (float a : { 15.f, 45.f, 90.f, 135.f, 180.f }) std::printf("  %3.0f deg: fastest possible %.2f s, par %.2f s\n", a, FastestTurnSec(a), ParSec(a));
 
-    std::printf("== Rank marks: 22 divisions, rising, reachable, harder at longer range ==\n");
+    std::printf("== Rocket League rank names ==\n");
     CHECK(kTierCount == 23 && std::string(TierName(0)) == "Bronze I" && std::string(TierName(17)) == "Champion III" &&
           std::string(TierName(18)) == "Grand Champion I" && std::string(TierName(kSSLTier)) == "Supersonic Legend" &&
-          std::string(TierName(kProTier)) == "Pro" && std::string(TierShort(kProTier)) == "PRO" &&
-          std::string(TierShort(18)) == "GC1" && TierRank(20) == 6 && TierRank(kSSLTier) == 7 && TierRank(kProTier) == 8, "rank names");
-    for (int m = 0; m < kModeCount; ++m)
-        for (int p = 0; p < PresetCount(m); ++p)
-            for (int r = 0; r < kRangeCount; ++r)
-            {
-                CHECK(TierThreshold(m, p, r, 0) == 0.f, "Bronze needs 0");
-                for (int t = 1; t < kTierCount; ++t)
-                {
-                    CHECK(TierThreshold(m, p, r, t) > TierThreshold(m, p, r, t - 1), "%s %s %s: tier %d not above %d", ModeName(m), PresetName(m, p), RangeName(r), t, t - 1);
-                    if (m == kTrack) CHECK(TierThreshold(m, p, r, t) < 60000.f, "track tier above the maximum");
-                    if (r > 0 && PresetUsesRange(m, p)) CHECK(TierThreshold(m, p, r, t) <= TierThreshold(m, p, r - 1, t), "%s %s: %s easier than shorter range (tier %d)", ModeName(m), PresetName(m, p), RangeName(r), t);
-                    float th = TierThreshold(m, p, r, t);
-                    CHECK(TierIndex(th, m, p, r) == t && TierIndex(th - 1.f, m, p, r) == t - 1, "TierIndex boundary");
-                }
-            }
-    for (int m = 0; m < kModeCount; ++m)
-        for (int p = 0; p < PresetCount(m); ++p)
-            std::printf("  %-6s %-10s Medium: Gold I %6.0f  Champion I %6.0f  GC I %6.0f  SSL %6.0f\n", ModeName(m), PresetName(m, p),
-                        TierThreshold(m, p, kMedium, 6), TierThreshold(m, p, kMedium, 15), TierThreshold(m, p, kMedium, 18), TierThreshold(m, p, kMedium, 21));
-
-    std::printf("== Rank value and rating ==\n");
-    {
-        // Rank value: each division's mark is exactly i/3, and it never goes down as the score rises.
-        for (int m = 0; m < kModeCount; ++m)
-            for (int p = 0; p < PresetCount(m); ++p)
-            {
-                float prev = -1.f;
-                for (int t = 0; t < kTierCount; ++t)
-                {
-                    float v = RankValue(TierThreshold(m, p, kMedium, t), m, p, kMedium);
-                    CHECK(std::fabs(v - t / 3.f) < 1e-3f && TierFromValue(v) == t, "%s %s: rank value at division %d is %.3f", ModeName(m), PresetName(m, p), t, v);
-                    CHECK(v > prev, "rank value not rising");
-                    prev = v;
-                }
-            }
-        // The calibration anchors: a GC1 player's averages sit in Grand Champion I.
-        struct A { int m, p; float s; } anchors[] = { { kFlick, 4, 27140.f }, { kTrack, 1, 46915.f }, { kHybrid, 0, 42418.f }, { kChase, 1, 26612.f } };
-        for (const A& a : anchors) CHECK(TierFromValue(RankValue(a.s, a.m, a.p, kMedium)) == 18, "%s %s: anchor not GC1", ModeName(a.m), PresetName(a.m, a.p));
-        // ...and the rank built from those runs, in the order played (weighted average with
-        // placements and the step limit), is Grand Champion I too.
-        struct Runs { int m, p; std::vector<float> s; } played[] = {
-            { kFlick, 4, { 24463, 29862, 0, 27388, 28196, 30554, 25390, 32606, 23830, 26019, 23086 } },
-            { kTrack, 1, { 47960, 47678, 48473, 46952, 46304, 43308, 46250, 47209, 47356, 48204, 46374 } },
-            { kHybrid, 0, { 39033, 36882, 45862, 45621, 42758, 38019, 42961, 44192, 43046, 45808 } },
-            { kChase, 1, { 28578, 24930, 24106, 26903, 26127, 27562, 24706, 29629, 28827, 24753 } } };
-        for (const Runs& r : played)
-        {
-            RankState st;
-            for (float v : r.s) RankUpdate(st, RankValue(v, r.m, r.p, kMedium));
-            CHECK(TierFromValue(st.value) == 18, "%s %s: rank from the anchor runs is %s, not GC1", ModeName(r.m), PresetName(r.m, r.p), TierName(TierFromValue(st.value)));
-        }
-        // Placements are the plain average; then a fluke only nudges; a disaster is limited.
-        RankState st;
-        for (int i = 0; i < kPlacementRuns; ++i) RankUpdate(st, i % 2 ? 5.5f : 5.3f);
-        CHECK(std::fabs(st.value - 5.4f) < 1e-4f && !RankPlacing(st), "placement average");
-        RankState fluke = st; RankUpdate(fluke, 6.8f);   // C2 player, GC3 run
-        CHECK(fluke.value > st.value && fluke.value - st.value < 1.f / 3.f, "a fluke moves less than a division");
-        RankState afk = st; RankUpdate(afk, 0.f);        // a 0-score run
-        CHECK(std::fabs((st.value - afk.value) - kRankRate * kRankStepLimit) < 1e-4f, "a disaster is capped");
-        RankState up = st; for (int i = 0; i < 10; ++i) RankUpdate(up, 6.4f);
-        CHECK(up.value > 6.0f, "ten runs at a new level carry most of the way");
-        std::printf("  placements -> %.2f; GC3 fluke -> %.3f; 0 run -> %.3f; ten GC2 runs -> %.2f\n", st.value, fluke.value, afk.value, up.value);
-    }
+          std::string(TierShort(18)) == "GC1" && std::string(TierShort(kSSLTier)) == "SSL" && TierRank(20) == 6 && TierRank(kSSLTier) == 7, "rank names");
 
     std::printf("== Stick needed for each Track speed ==\n");
     for (const auto& tp : kTrackPresets) if (!tp.dynamic) std::printf("  %-10s %2.0f deg/s: %4.1f%% of max spin, stick %.1f%% pitch / %.1f%% yaw\n", tp.name, tp.speed, PctOfMaxSpin(tp.speed), 100 * StickForSpin(tp.speed, true), 100 * StickForSpin(tp.speed, false));

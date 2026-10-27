@@ -118,7 +118,6 @@ private:
         bool noRoll = false;                    // played with No air roll
         std::string flags;
         int score = 0, tier = -1, prevBest = -1;
-        airlabs::RankState rank;                // your rank on this preset after this run (runs = 0: none)
         bool newBest = false;
         int targets = 0, misses = 0, hybReps = 0;
         float avgTime = -1.f, avgReaction = -1.f, avgOvershoot = -1.f;
@@ -335,9 +334,6 @@ private:
     std::string detachedFrom[airlabs::kModeCount];         // saved preset a Custom run was edited from
     std::vector<RunRecord> records;
     std::map<int, int> bestScore, runCount;
-    std::map<int, airlabs::RankState> rankState; // current rank per preset/range (and No air roll), keyed like bestScore
-    airlabs::RankState RankForLocked(int mode, int preset, int range, int userPreset, bool noRoll) const; // caller holds recordsMutex
-    airlabs::RankState RankFor(int mode, int preset, int range, int userPreset, bool noRoll);
     std::map<int, std::vector<float>> history;
     std::map<int, float> bestOnPct;
     RunResult lastResult;
@@ -484,11 +480,8 @@ private:
     bool rankIconsTried = false;
     void EnsureRankIcons();
     // Draws your rank's badge at p (dl == nullptr: just measure). Returns its width (0 with no runs).
-    float RankBadge(const airlabs::RankState& rs, float height, ImFont* font, ImDrawList* dl, ImVec2 p);
     // A real Rocket League rank (tier * 4 + division, -1 = not known): its icon, or a text badge.
     float RealRankBadge(int rank, float height, ImFont* font, ImDrawList* dl, ImVec2 p);
-    bool RankChip(const char* id, const char* label, bool selected, ImFont* font, ImFont* badgeFont, const airlabs::RankState& rs, float height);
-    float RankChipWidth(const char* label, ImFont* font, ImFont* badgeFont, const airlabs::RankState& rs, float height);
     void ToggleWindow();
     void DrawTrainerWindow();
     void WinSidebar(float height);

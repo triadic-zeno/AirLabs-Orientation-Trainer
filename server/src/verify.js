@@ -13,7 +13,7 @@
 // runs look like they spun at twice the game's limit.)
 import {
   C, DT, FLICK, TRACK, HYBRID, CHASE, flickPoints, trackCredit, ballTargetDeg,
-  presetCount, presetList, presetDistance, presetAim, proMark, clamp,
+  presetCount, presetList, presetDistance, presetAim, clamp,
 } from './core.js';
 import { EV, RF } from './replay.js';
 
@@ -23,7 +23,6 @@ const HYB_TRACK = F(C.hybridTrackSec), CHASE_HOLD = F(C.chaseHoldSec), CHASE_TIM
 const RUN_SEC = F(C.presetRunSec);
 const DEG = Math.PI / 180;
 
-export const PRO_ALLOWANCE = 1.15; // a run may beat the Pro mark (the human limit) by up to 15%
 
 // sin of every rotator value (65536 per turn), built once per isolate: the car's axes each tick
 // are then plain arithmetic.
@@ -306,12 +305,6 @@ function verify(r) {
   // The board shows the replayed score when it's clearly different from the claimed one.
   let boardScore = r.score;
   if (scored && Math.abs(score - r.score) > Math.max(25, 0.005 * score)) { note('score'); boardScore = score; }
-  // Past the Pro mark (the human limit), and far past it. Flick and Hybrid: 15% past. Track and
-  // Chase score time on the ball (60,000 max): less than half the Pro's time off it.
-  const pro = proMark(r.mode, r.preset, r.range);
-  const tracky = r.mode === TRACK || r.mode === CHASE;
-  if (boardScore > pro) note('pro');
-  if (tracky ? 60000 - boardScore < 0.5 * (60000 - pro) : boardScore > pro * PRO_ALLOWANCE) note('beyond-pro');
   if (r.flags & RF.KEYBOARD) note('keyboard');
   return {
     ok: true,
