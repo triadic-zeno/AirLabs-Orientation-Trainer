@@ -1724,6 +1724,38 @@ void AirLabs::WinLeaderboard()
         dl->AddLine(ImVec2(p.x, p.y + 52.f), ImVec2(p.x + inner, p.y + 52.f), kBorder);
     }
     const float rowH = 42.f;
+    // ---- your spot, pinned at the top of the board ----
+    if (board.loaded)
+    {
+        const ImVec2 q = ImGui::GetCursorScreenPos();
+        const float h = 52.f;
+        ImGui::Dummy(ImVec2(inner, h));
+        dl->AddRectFilled(q, ImVec2(q.x + inner, q.y + h), kAccentBg);
+        dl->AddLine(ImVec2(q.x, q.y + h), ImVec2(q.x + inner, q.y + h), kBorder);
+        const float cy = q.y + h * 0.5f;
+        DrawText(dl, small, ImVec2(q.x + 18.f, cy - SizeOf(small) * 0.5f), kFaint, "YOU");
+        const float x = q.x + 76.f;
+        if (board.mePos > 0)
+        {
+            // #3 of 10, your best, top x%, and how far it is to the next place up.
+            const std::string place = "#" + std::to_string(board.mePos) + " of " + FmtInt(board.total);
+            DrawText(dl, uiFonts[kFontHeading], ImVec2(x, cy - SizeOf(uiFonts[kFontHeading]) * 0.5f), board.mePos == 1 ? kGold : kText, place.c_str());
+            float tx = x + TextSize(uiFonts[kFontHeading], place.c_str()).x + 18.f;
+            std::string more = "your best " + FmtInt(board.meScore);
+            if (board.total > 1) more += "  \xC2\xB7  top " + std::to_string(std::max(1, static_cast<int>(std::ceil(100.0 * board.mePos / board.total)))) + "%";
+            if (board.mePos == 1) more += "  \xC2\xB7  nobody has beaten you";
+            else if (board.mePos - 2 < static_cast<int>(board.rows.size()))
+            {
+                const int gap = board.rows[board.mePos - 2].score - board.meScore + 1; // a tie goes to whoever got there first
+                more += "  \xC2\xB7  " + FmtInt(std::max(1, gap)) + " points to #" + std::to_string(board.mePos - 1);
+            }
+            DrawText(dl, bold, ImVec2(tx, cy - SizeOf(bold) * 0.5f), kDim, more.c_str());
+        }
+        else
+            DrawText(dl, bold, ImVec2(x, cy - SizeOf(bold) * 0.5f), kDim,
+                     lbPost && *lbPost ? "You're not on this board yet. Play it, and your best goes up."
+                                       : "You're not on this board. Turn posting back on to put your runs up.");
+    }
     const float rankW = 38.f, rankGap = 6.f, ranksRight = inner - 230.f - 110.f; // three rank icons, left of the score
     bool anyRank = false;
     for (const LbRow& r : board.rows) for (int i = 0; i < 3; ++i) anyRank |= r.rank[i] >= 0;
@@ -1795,15 +1827,7 @@ void AirLabs::WinLeaderboard()
             meShown |= mine;
             drawRow(board.rows[i], mine, i % 2 == 1);
         }
-        if (!meShown && board.mePos > 0)
-        {
-            ImVec2 p = ImGui::GetCursorScreenPos();
-            dl->AddLine(ImVec2(p.x, p.y), ImVec2(p.x + inner, p.y), kBorder);
-            LbRow me;
-            me.pos = board.mePos; me.score = board.meScore; me.run = board.meRun; me.pid = pid;
-            me.name = name.empty() ? std::string("You") : name;
-            drawRow(me, true, false);
-        }
+        (void)meShown; // your place is pinned at the top of the board
     }
     ImGui::Dummy(ImVec2(0, 4));
     c.End();
