@@ -718,7 +718,7 @@ void AirLabs::WinSidebar(float height)
     dl->AddCircleFilled(ImVec2(top.x + 18.f, top.y + 22.f), 5.f, dotCol, 16);
     DrawText(dl, uiFonts[kFontBold], ImVec2(top.x + 30.f, top.y + 12.f), kText, status.c_str());
     DrawText(dl, uiFonts[kFontSmall], ImVec2(top.x + 14.f, top.y + 44.f), kDim, "Open or close this window:");
-    DrawText(dl, uiFonts[kFontBold], ImVec2(top.x + 14.f, top.y + 62.f), kText, "bind O airlabs_menu");
+    DrawText(dl, uiFonts[kFontBold], ImVec2(top.x + 14.f, top.y + 62.f), kText, "bind O AL_menu");
     if (state == RunState::Idle) // the running status is wider, so the version only shows when idle
         DrawText(dl, uiFonts[kFontSmall], ImVec2(bot.x - TextSize(uiFonts[kFontSmall], kWinVersion).x - 12.f, top.y + 14.f), kFaint, kWinVersion);
 }

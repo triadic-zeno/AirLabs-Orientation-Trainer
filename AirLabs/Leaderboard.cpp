@@ -849,6 +849,8 @@ void AirLabs::RefreshKeys()
         }
     }
     catch (...) {}
-    menuKey = BoundKey(cfg, "airlabs_menu");
+    menuKey = BoundKey(cfg, "AL_menu");
+    if (menuKey.empty()) menuKey = BoundKey(cfg, "al_menu");
+    if (menuKey.empty()) menuKey = BoundKey(cfg, "airlabs_menu");
     toggleKey = BoundKey(cfg, "airlabs_toggle");
 }

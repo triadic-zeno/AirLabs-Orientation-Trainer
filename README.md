@@ -23,7 +23,7 @@ way: press F2, go to Plugins > AirLabs and click **Set O to open AirLabs**. Or p
 the BakkesMod console and type:
 
 ```
-bind O airlabs_menu
+bind O AL_menu
 ```
 
 Press O and hit START: it takes you to the space map and the run begins. Everything
@@ -58,11 +58,11 @@ from `plugins.cfg`, and delete `plugins\OrientationTrainer.dll`. Commands are no
 
 ## The trainer window
 
-Everything lives in the plugin's own window. Open and close it with the `airlabs_menu`
+Everything lives in the plugin's own window. Open and close it with the `AL_menu`
 command; the easiest way is to bind a key once in the F6 console:
 
 ```
-bind O airlabs_menu
+bind O AL_menu
 ```
 
 (Or press **Open the AirLabs window** in F2 > Plugins > AirLabs.)
@@ -86,7 +86,7 @@ compiled into the DLL and written to `bakkesmod\data\fonts` when the plugin load
 
 ## How a run works
 
-1. Open the trainer window (`airlabs_menu`), pick a mode, a preset and a range on the
+1. Open the trainer window (`AL_menu`), pick a mode, a preset and a range on the
    **Play** page, and press **START** (or `bind F5 airlabs_toggle`). START takes you to the
    space map, from the main menu too (see "The space map" below).
 2. Your car resets to the centre of the arena with a ball between you and the goal you
@@ -411,8 +411,12 @@ The server is a Cloudflare Worker with a D1 database, in `server/` (see `server/
 
 None of these affect whether a run counts.
 
-- **Laser** out of the nose (or the wheels in wheels aim). Red off target, yellow
-  close, green locked on. Off by default. Toggle: `bind L airlabs_laser_toggle`.
+- **Laser** out of the nose (or the wheels in wheels aim). Off by default, and best left off:
+  there's no laser in a real match. It's on the Play page too (**Laser: OFF**, under No air
+  roll). **Stop at the ball** (on by default) ends it at the ball's distance, so its tip touches
+  the ball when you're on it; turn that off to set your own **Laser length**. Colour: either
+  **Changes with your aim** (red off target, yellow close, green locked on) or **One colour**
+  you pick. Toggle: `bind L airlabs_laser_toggle`.
 - **Aim marker** (white cross). Off by default.
 - **Stick guide** (Custom runs only): shows the input that gets you onto the ball
   fastest, including when to brake. Options: inverted pitch, brake cue timing.
@@ -432,7 +436,7 @@ PC clock if it ever looks wrong; the Readout shows which is in use.
 
 | Command | What it does |
 |---|---|
-| `airlabs_menu` | Open or close the trainer window |
+| `AL_menu` (or `airlabs_menu`) | Open or close the trainer window: `bind <any key> AL_menu` |
 | `airlabs_space` | Go to the AirLabs space map (no floor; the car is held in the air from spawn), and make it where START takes you |
 | `airlabs_standard` | Go back to the standard field (DFH Stadium Freeplay), and make it where START takes you |
 | `airlabs_map 0` / `airlabs_map 1` | Where START takes you: the space map (default) / the standard field |

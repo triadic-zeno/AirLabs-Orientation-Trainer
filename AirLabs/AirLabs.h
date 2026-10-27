@@ -161,6 +161,9 @@ private:
     std::shared_ptr<bool> noAirRoll;
     std::shared_ptr<int> mapPref;   // airlabs_map: where Start takes you. 0 = space map (default), 1 = standard field
     std::shared_ptr<float> laserLength, laserWidth, guideAccel;
+    std::shared_ptr<bool> laserToBall;          // airlabs_laser_to_ball: the laser ends at the ball's distance
+    std::shared_ptr<int> laserColorMode;        // airlabs_laser_colormode: 0 = red/yellow/green with your aim, 1 = one colour
+    std::shared_ptr<std::string> laserColor;    // airlabs_laser_color: that colour, "#RRGGBB"
     std::shared_ptr<int> guideMode;
     std::shared_ptr<bool> lbPost;          // airlabs_lb_post: post your preset runs to the public leaderboard
     std::shared_ptr<bool> showTips;        // airlabs_tips: a training tip on the Play page

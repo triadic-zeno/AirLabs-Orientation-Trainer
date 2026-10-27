@@ -393,7 +393,9 @@ void AirLabs::onLoad()
 
     notifier("airlabs_space", [this] { SetCvarI("airlabs_map", 0); LoadSpaceMap(); }, "Go to the AirLabs space map (Freeplay, car held in the air); Start takes you there from now on");
     notifier("airlabs_standard", [this] { SetCvarI("airlabs_map", 1); LoadStandardMap(); }, "Go back to the standard field (DFH Stadium Freeplay); Start uses it from now on");
-    notifier("airlabs_menu", [this] { ToggleWindow(); }, "Open or close the AirLabs window (bind it: bind O airlabs_menu)");
+    notifier("airlabs_menu", [this] { ToggleWindow(); }, "Open or close the AirLabs window (bind it: bind O AL_menu)");
+    notifier("AL_menu", [this] { ToggleWindow(); }, "Open or close the AirLabs window: bind <any key> AL_menu");
+    notifier("al_menu", [this] { ToggleWindow(); }, "Open or close the AirLabs window (same as AL_menu)");
     notifier("airlabs_rank", [this] { RefreshRealRanks("asked"); }, "Print your Rocket League ranks as the game reports them (1v1, 2v2, 3v3)");
     notifier("airlabs_update", [this] { StartUpdate(); }, "Install the newest AirLabs from bakkesplugins (when the window says one is out)");
     cvarManager->registerNotifier("airlabs_watch", [this](std::vector<std::string> args) {
@@ -473,6 +475,7 @@ void AirLabs::RegisterCvars()
     mapPref = mkI(0);
     hudGrid = mkB(false); blockJumpBoost = mkB(true);
     laserLength = mkF(6000.f); laserWidth = mkF(3.f); guideAccel = mkF(450.f); guideMode = mkI(0);
+    laserToBall = mkB(true); laserColorMode = mkI(0); laserColor = std::make_shared<std::string>("#5AA0FF");
     lbPost = mkB(true); lbUrl = std::make_shared<std::string>(kLeaderboardUrl);
     showTips = mkB(true);
 
@@ -518,6 +521,9 @@ void AirLabs::RegisterCvars()
     reg("airlabs_map", "0", "Where Start takes you: 0 = the AirLabs space map (default), 1 = the standard field (DFH Stadium Freeplay)", 0.f, 1.f).bindTo(mapPref);
     reg("airlabs_laser_length", "6000", "Laser length (uu)", 500.f, 20000.f).bindTo(laserLength);
     reg("airlabs_laser_width", "3", "Laser thickness (px)", 1.f, 12.f).bindTo(laserWidth);
+    reg("airlabs_laser_to_ball", "1", "The laser ends at the ball's distance (0 = it reaches as far as airlabs_laser_length)", 0.f, 1.f).bindTo(laserToBall);
+    reg("airlabs_laser_colormode", "0", "Laser colour: 0 = red/yellow/green with your aim, 1 = one colour (airlabs_laser_color)", 0.f, 1.f).bindTo(laserColorMode);
+    cvarManager->registerCvar("airlabs_laser_color", "#5AA0FF", "Laser colour when it's one colour (#RRGGBB)", true, false, 0.f, false, 0.f, true).bindTo(laserColor);
     reg("airlabs_show_nose", "0", "Aim marker (white cross)", 0.f, 1.f).bindTo(showAimMarker);
     reg("airlabs_guide", "0", "Stick guide in Custom runs", 0.f, 1.f).bindTo(guideMode);
     reg("airlabs_guide_invert", "0", "Stick guide: you play with inverted pitch", 0.f, 1.f).bindTo(guideInvert);
@@ -2108,7 +2114,12 @@ void AirLabs::DrawLaser(CanvasWrapper& canvas)
     int aim = state != RunState::Idle ? runAim : CurrentSettings().aim;
     Vector dir = AimVec(cb, aim);
     Vector a = Add(carLoc, Scale(dir, aim == 1 ? 25.f : 75.f));
-    Vector b = Add(carLoc, Scale(dir, *laserLength));
+    // How far it reaches: to the ball's distance (so its tip touches the ball when you're on it),
+    // or the Laser length setting.
+    float len = *laserLength;
+    if (laserToBall && *laserToBall)
+        len = state == RunState::Replay ? play.distance : hasTarget ? Len(Sub(targetLocation, pinLocation)) : CurrentSettings().distance;
+    Vector b = Add(carLoc, Scale(dir, std::max(len, aim == 1 ? 60.f : 110.f)));
 
     // Clip against a plane just in front of the camera: projecting a point behind the
     // camera would flip it across the screen.
@@ -2125,7 +2136,13 @@ void AirLabs::DrawLaser(CanvasWrapper& canvas)
     // Red off target, yellow within kNearDeg (25 degrees) (or on it but still turning when you must
     // stop on it), green when locked on.
     float lr = 255.f, lg = 40.f, lb = 40.f;
-    if (state != RunState::Idle && hasTarget)
+    if (laserColorMode && *laserColorMode == 1) // one colour, whatever you're aiming at
+    {
+        unsigned rgb = 0x5AA0FF;
+        if (laserColor && laserColor->size() >= 7 && (*laserColor)[0] == '#') rgb = static_cast<unsigned>(std::strtoul(laserColor->c_str() + 1, nullptr, 16));
+        lr = static_cast<float>((rgb >> 16) & 255); lg = static_cast<float>((rgb >> 8) & 255); lb = static_cast<float>(rgb & 255);
+    }
+    else if (state != RunState::Idle && hasTarget)
     {
         if (locking)                             { lr = 80.f;  lg = 255.f; lb = 120.f; }
         else if (settling || aimErrorDeg < kNearDeg) { lr = 255.f; lg = 210.f; lb = 60.f; }
@@ -2676,18 +2693,19 @@ void AirLabs::RenderSettings()
     ImGui::TextUnformatted("Open AirLabs with the O key");
     popFont(kFontHeading);
     pushFont(kFontBold);
-    if (ImGui::Button("Set O to open AirLabs", ImVec2(240, 34))) cvarManager->executeCommand("bind O airlabs_menu");
+    if (ImGui::Button("Set O to open AirLabs", ImVec2(240, 34))) cvarManager->executeCommand("bind O AL_menu");
     ImGui::SameLine();
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted("Click once, then press O anytime to open or close AirLabs.");
-    ImGui::TextUnformatted("Or by hand: press F6 to open the BakkesMod console, type this line and press Enter:");
+    ImGui::TextUnformatted("Or any key you like: press F6 to open the BakkesMod console, type this with your key in place of <any key> (O, say) and press Enter:");
     popFont(kFontBold);
     pushFont(kFontHeading);
-    ImGui::TextColored(ImVec4(0.45f, 0.72f, 1.f, 1.f), "    bind O airlabs_menu");
+    ImGui::TextColored(ImVec4(0.45f, 0.72f, 1.f, 1.f), "    bind <any key> AL_menu");
     popFont(kFontHeading);
     ImGui::SameLine();
     pushFont(kFontBold);
-    if (ImGui::Button("Copy")) ImGui::SetClipboardText("bind O airlabs_menu");
+    if (ImGui::Button("Copy")) ImGui::SetClipboardText("bind O AL_menu");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Copies \"bind O AL_menu\": change the O to the key you want");
     popFont(kFontBold);
     ImGui::Spacing();
     if (ImGui::CollapsingHeader("Classic settings view"))
@@ -3049,9 +3067,35 @@ void AirLabs::TabAssists()
     Desc("Visual aids and options. These never change whether a run counts toward your records.");
 
     Heading("Laser");
-    UiCheck("Show laser", "A line out of your car showing exactly where you're aiming. Red when off target, yellow when close, green when you're on it. Key: bind L airlabs_laser_toggle", "airlabs_laser");
-    UiSliderF("Laser length", "How far the laser reaches.", "airlabs_laser_length", 500.f, 20000.f, "%.0f uu");
+    UiCheck("Show laser", "A line out of your car showing exactly where you're aiming. Best played with it off: there's no laser in a real match. Key: bind L airlabs_laser_toggle", "airlabs_laser");
+    UiCheck("Stop at the ball", "The laser ends at the ball's distance, so its tip touches the ball when you're on it. Off: it reaches as far as Laser length.", "airlabs_laser_to_ball");
+    if (!(laserToBall && *laserToBall)) UiSliderF("Laser length", "How far the laser reaches.", "airlabs_laser_length", 500.f, 20000.f, "%.0f uu");
     UiSliderF("Laser thickness", "How thick the laser looks.", "airlabs_laser_width", 1.f, 12.f, "%.1f px");
+    {
+        const int mode = laserColorMode ? *laserColorMode : 0;
+        if (Choice("Changes with your aim", mode == 0, ImVec2(220, 28))) SetCvarI("airlabs_laser_colormode", 0);
+        ImGui::SameLine();
+        if (Choice("One colour", mode == 1, ImVec2(160, 28))) SetCvarI("airlabs_laser_colormode", 1);
+        if (mode == 1)
+        {
+            ImGui::SameLine();
+            unsigned rgb = 0x5AA0FF;
+            if (laserColor && laserColor->size() >= 7 && (*laserColor)[0] == '#') rgb = static_cast<unsigned>(std::strtoul(laserColor->c_str() + 1, nullptr, 16));
+            float col[3] = { ((rgb >> 16) & 255) / 255.f, ((rgb >> 8) & 255) / 255.f, (rgb & 255) / 255.f };
+            if (ImGui::ColorEdit3("##lasercol", col, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel))
+            {
+                char hex[8];
+                std::snprintf(hex, sizeof hex, "#%02X%02X%02X", static_cast<int>(col[0] * 255.f + 0.5f), static_cast<int>(col[1] * 255.f + 0.5f), static_cast<int>(col[2] * 255.f + 0.5f));
+                CVarWrapper cv = cvarManager->getCvar("airlabs_laser_color");
+                if (!cv.IsNull()) cv.setValue(std::string(hex));
+            }
+            ImGui::SameLine();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("click the square to pick");
+        }
+        Desc(mode == 0 ? "Laser colour: red off the ball, yellow close, green when you're on it."
+                       : "Laser colour: always the colour you pick, wherever you're aiming.");
+    }
 
     Heading("Aim marker");
     UiCheck("Show aim marker", "A small white cross where you're aiming, like a crosshair.", "airlabs_show_nose");
@@ -3598,7 +3642,7 @@ void AirLabs::TabHelp()
 
     Heading("Key binds (type in the F6 console)");
     static const char* binds[][2] = {
-        { "bind O airlabs_menu", "open or close this window" },
+        { "bind O AL_menu", "open or close this window (any key works)" },
         { "bind F5 airlabs_toggle", "start / stop" },
         { "bind M airlabs_mode_toggle", "Flick -> Track -> Hybrid" },
         { "bind P airlabs_preset_next", "next preset" },
