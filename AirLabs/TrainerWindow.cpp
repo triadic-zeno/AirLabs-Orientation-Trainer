@@ -1501,14 +1501,15 @@ void AirLabs::WinLeaderboard()
     ImFont* bold = uiFonts[kFontBold];
     const double wall = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 
-    // Start on the preset you're playing.
+    // Open on Flick Mixed, Medium range: the busiest board (the website opens there too).
     if (lbMode < 0)
     {
-        const DrillSettings s = CurrentSettings();
-        lbMode = s.mode;
-        lbPreset = s.custom ? 0 : s.preset;
-        lbRange = s.range;
-        lbNoRoll = noAirRoll && *noAirRoll;
+        lbMode = kFlick;
+        lbPreset = 0;
+        for (int i = 0; i < PresetCount(kFlick); ++i)
+            if (std::string_view(kFlickPresets[i].name) == "Mixed") lbPreset = i;
+        lbRange = kMedium;
+        lbNoRoll = false;
     }
     lbMode = std::clamp(lbMode, 0, kModeCount - 1);
     lbPreset = std::clamp(lbPreset, 0, PresetCount(lbMode) - 1);
