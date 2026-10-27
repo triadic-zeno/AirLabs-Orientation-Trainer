@@ -18,14 +18,14 @@
 
 using namespace airlabs;
 
-BAKKESMOD_PLUGIN(AirLabs, "AirLabs", "2.7.2", PLUGINTYPE_FREEPLAY)
+BAKKESMOD_PLUGIN(AirLabs, "AirLabs", "2.8.0", PLUGINTYPE_FREEPLAY)
 
 // Set by the trainer window while it draws, so shared section headings use its font.
 ImFont* g_otHeadingFont = nullptr;
 
 namespace
 {
-    constexpr const char* kVersion = "2.7.2";
+    constexpr const char* kVersion = "2.8.0";
     // The public leaderboard (a Cloudflare Worker, see server/ in the source).
     constexpr const char* kLeaderboardUrl = "https://leaderboard.airlabs.workers.dev";
     const char* kTickEvent = "Function TAGame.Car_TA.SetVehicleInput";
@@ -402,7 +402,8 @@ void AirLabs::onLoad()
     notifier("airlabs_space", [this] { SetCvarI("airlabs_map", 0); LoadSpaceMap(); }, "Go to the AirLabs space map (Freeplay, car held in the air); Start takes you there from now on");
     notifier("airlabs_standard", [this] { SetCvarI("airlabs_map", 1); LoadStandardMap(); }, "Go back to the standard field (DFH Stadium Freeplay); Start uses it from now on");
     notifier("airlabs_menu", [this] { ToggleWindow(); }, "Open or close the AirLabs window (bind it: bind O airlabs_menu)");
-    notifier("airlabs_rank", [this] { LogRealRank("asked"); }, "Print your Rocket League rank as the game reports it (1v1, 2v2, 3v3)");
+    notifier("airlabs_rank", [this] { RefreshRealRanks("asked"); }, "Print your Rocket League ranks as the game reports them (1v1, 2v2, 3v3)");
+    notifier("airlabs_update", [this] { StartUpdate(); }, "Install the newest AirLabs from bakkesplugins (when the window says one is out)");
     cvarManager->registerNotifier("airlabs_watch", [this](std::vector<std::string> args) {
         if (args.size() > 1) WatchReplay(std::atoi(args[1].c_str()));
     }, "Watch a leaderboard run's replay: airlabs_watch <run number>", PERMISSION_ALL);
@@ -414,9 +415,14 @@ void AirLabs::onLoad()
     LoadSavedPresets();
     LoadLeaderboardFile();
     SchedulePendingRetry(15.f); // runs left over from a session without internet go up soon after loading
-    // Does the game know your Rocket League rank? (Logged so it can be checked; see LogRealRank.)
-    gameWrapper->SetTimeout([this](GameWrapper*) { LogRealRank("30 s after loading"); }, 30.f);
-    gameWrapper->SetTimeout([this](GameWrapper*) { LogRealRank("3 min after loading"); }, 180.f);
+    // Your Rocket League ranks (once the game has loaded them), your saved bests, and updates.
+    {
+        auto alive = lbAlive;
+        gameWrapper->SetTimeout([this, alive](GameWrapper*) { if (alive->load()) RefreshRealRanks("30 s after loading"); }, 30.f);
+        gameWrapper->SetTimeout([this, alive](GameWrapper*) { if (alive->load()) SendSavedBests(); }, 40.f);
+        gameWrapper->SetTimeout([this, alive](GameWrapper*) { if (alive->load()) RefreshRealRanks("3 min after loading"); }, 180.f);
+        gameWrapper->SetTimeout([this, alive](GameWrapper*) { if (alive->load()) CheckForUpdate(); }, 8.f);
+    }
     {
         std::error_code ec;
         haveSpaceMap = std::filesystem::exists(SpaceMapPath(), ec);
@@ -446,6 +452,8 @@ void AirLabs::onUnload()
     gameWrapper->UnhookEvent(kEndEvent);
     gameWrapper->UnregisterDrawables();
 }
+
+const char* AirLabs::PluginVersion() { return kVersion; }
 
 void AirLabs::RegisterCvars()
 {
@@ -936,7 +944,7 @@ void AirLabs::BeginRunning(const Basis& b, const DrillSettings& s)
 void AirLabs::EndRun(CarWrapper car, const Basis& b, const DrillSettings& s)
 {
     if (hybridTracking) EndHybridRep(s); // count the part-finished tracking
-    LogRealRank("after a run");
+    RefreshRealRanks("after a run");
 
     RunResult r;
     r.valid = true;
@@ -3687,15 +3695,18 @@ void AirLabs::TabHelp()
     ImGui::TextWrapped("Every preset comes in Short, Medium and Long. Each range is its own competition with its own personal bests, tiers and graphs, because a closer ball is easier to hit. Flip Reset always uses 350 uu and has one set of records.");
 
     Heading("Scoring");
-    ImGui::BulletText("Flick: each target is worth 1000 points at par time, up to 2000 for twice as fast.");
+    ImGui::BulletText("Flick: each target is worth 1000 points at par time, up to 2000 for twice as fast. No fixed maximum.");
     ImGui::TextWrapped("    Par comes from physics (the fastest possible turn for that angle, plus a human allowance), so big turns aren't punished.");
-    ImGui::BulletText("Track: 1000 points per second on target, with partial credit just outside.");
+    ImGui::BulletText("Track: 1000 points per second on target, with partial credit just outside. Max 60,000 in a one-minute run.");
     ImGui::BulletText("Hybrid: flick points plus tracking points for each rep.");
-    ImGui::BulletText("Chase: like Track, 1000 points per second on the ball, for the whole minute.");
+    ImGui::BulletText("Chase: like Track, 1000 points per second on the ball, for the whole minute. Max 60,000.");
     ImGui::BulletText("Tiers: Bronze, Silver, Gold, Platinum, Diamond, Champion, Grand Champion, Supersonic Legend. Each preset and range has its own marks.");
 
     Heading("Leaderboard");
-    ImGui::TextWrapped("The Leaderboard page shows everyone's best run on every preset and range (No air roll has its own boards). Your preset runs post there under your Rocket League name: whenever a run beats your best on that board, it goes up with its replay. Don't want that? Press Stop posting on the Leaderboard page. Press Watch next to any run to see it in the game: your car and the ball follow the replay exactly, and Stop (or your airlabs_toggle key) ends it. The same boards are on the web too.");
+    ImGui::TextWrapped("The Leaderboard page shows everyone's best run on every preset and range (No air roll has its own boards). Your preset runs post there under your Rocket League name: whenever a run beats your best on that board, it goes up with its replay. Don't want that? Press Stop posting on the Leaderboard page. Press Watch next to any run to see it in the game: your car and the ball follow the replay exactly, and Stop (or your airlabs_toggle key) ends it. Your best score on every preset from your saved runs goes up too, including runs from before replays were recorded (those show No replay). Next to each name are that player's Rocket League ranks in 1s, 2s and 3s, as their game reports them. The same boards are on the web too.");
+
+    Heading("Updates");
+    ImGui::TextWrapped("AirLabs checks for a new version when it loads. When one is out, an Update button appears in the sidebar: press it and BakkesMod installs the new version and reloads the plugin.");
 
     Heading("Fair timing");
     ImGui::TextWrapped("Runs are timed in physics ticks (120 per second), so frame rate doesn't affect your score and pausing the game pauses the run. The readout (Assists tab) shows the measured tick rate.");

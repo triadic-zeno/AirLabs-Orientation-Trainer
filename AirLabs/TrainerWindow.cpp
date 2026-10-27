@@ -22,7 +22,7 @@ extern ImFont* g_otHeadingFont; // AirLabs.cpp: section headings use this when s
 
 namespace
 {
-    constexpr const char* kWinVersion = "2.7.2";
+    constexpr const char* kWinVersion = "2.8.0";
 
     // ---- palette ----
     constexpr ImU32 Rgb(int r, int g, int b, int a = 255) { return IM_COL32(r, g, b, a); }
@@ -601,6 +601,38 @@ float AirLabs::RankBadge(const RankState& rs, float h, ImFont* font, ImDrawList*
     return w;
 }
 
+float AirLabs::RealRankBadge(int rank, float h, ImFont* font, ImDrawList* dl, ImVec2 p)
+{
+    const float icon = h + 8.f, iconY = p.y + (h - icon) * 0.5f;
+    EnsureRankIcons();
+    if (rank < 0) // not known: a quiet dash
+    {
+        if (dl) DrawText(dl, font, ImVec2(p.x + icon * 0.5f - 4.f, p.y + (h - SizeOf(font)) * 0.5f), kFaint, "-");
+        return icon;
+    }
+    const int tier = rank / 4, div = rank % 4;
+    std::shared_ptr<ImageWrapper> img = tier == 0 ? unrankedIcon : rankIcon[std::clamp(tier - 1, 0, kTierCount - 1)];
+    if (img && img->IsLoadedForImGui())
+    {
+        if (dl)
+            if (void* tex = img->GetImGuiTex()) dl->AddImage(tex, ImVec2(p.x, iconY), ImVec2(p.x + icon, iconY + icon));
+        (void)div;
+        return icon;
+    }
+    if (img) img->GetImGuiTex(); // starts loading; drawn from the next frame
+    const char* txt = tier == 0 ? "UNR" : TierShort(tier - 1);
+    const float w = std::max(icon, TextSize(font, txt).x + 10.f);
+    if (dl)
+    {
+        const ImU32 col = tier == 0 ? Rgb(48, 55, 70) : RankColor(TierRank(tier - 1));
+        const ImVec2 ts = TextSize(font, txt);
+        dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), col, 5.f);
+        DrawText(dl, font, ImVec2(p.x + (w - ts.x) * 0.5f, p.y + (h - SizeOf(font)) * 0.5f),
+                 tier == 0 ? kDim : (TierRank(tier - 1) >= 7 || TierRank(tier - 1) <= 3 ? Rgb(20, 22, 28) : Rgb(255, 255, 255)), txt);
+    }
+    return w;
+}
+
 // A preset button with your rank on it: "Control  [GC1]".
 float AirLabs::RankChipWidth(const char* label, ImFont* font, ImFont* badgeFont, const RankState& rs, float height)
 {
@@ -690,6 +722,35 @@ void AirLabs::WinSidebar(float height)
     // Status and key hint at the bottom.
     const float boxH = 104.f;
     ImVec2 top(p.x + 12.f, p.y + height - boxH - 12.f);
+
+    // A newer AirLabs on bakkesplugins: an Update button just above the status box.
+    std::string latest;
+    bool updating;
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        latest = lbLatest;
+        updating = lbUpdating;
+    }
+    if (!latest.empty())
+    {
+        const float bh = 62.f;
+        const ImVec2 b0(top.x, top.y - bh - 10.f), b1(p.x + w - 12.f, top.y - 10.f);
+        ImGui::SetCursorScreenPos(b0);
+        const bool pressed = ImGui::InvisibleButton("##otupdate", ImVec2(b1.x - b0.x, bh));
+        const bool hover = ImGui::IsItemHovered();
+        dl->AddRectFilled(b0, b1, updating ? kCardHi : (hover ? kAccentHi : kAccent), 10.f);
+        // a down arrow into a tray
+        const ImVec2 ic(b0.x + 24.f, b0.y + bh * 0.5f);
+        const ImU32 white = Rgb(255, 255, 255);
+        dl->AddLine(ImVec2(ic.x, ic.y - 9.f), ImVec2(ic.x, ic.y + 3.f), white, 2.f);
+        dl->AddTriangleFilled(ImVec2(ic.x - 5.f, ic.y), ImVec2(ic.x + 5.f, ic.y), ImVec2(ic.x, ic.y + 6.f), white);
+        dl->AddLine(ImVec2(ic.x - 8.f, ic.y + 9.f), ImVec2(ic.x + 8.f, ic.y + 9.f), white, 2.f);
+        DrawText(dl, uiFonts[kFontBold], ImVec2(b0.x + 44.f, b0.y + 11.f), white, updating ? "Updating..." : "Update");
+        DrawText(dl, uiFonts[kFontSmall], ImVec2(b0.x + 44.f, b0.y + 33.f), Rgb(220, 232, 255),
+                 (updating ? "BakkesMod is installing " + latest : "AirLabs " + latest + " is out").c_str());
+        if (hover && !updating) ImGui::SetTooltip("Install AirLabs %s from bakkesplugins. BakkesMod reloads it when it's done.", latest.c_str());
+        if (pressed && !updating) StartUpdate();
+    }
     ImVec2 bot(p.x + w - 12.f, p.y + height - 12.f);
     dl->AddRectFilled(top, bot, kCard, 10.f);
     dl->AddRect(top, bot, kBorder, 10.f);
@@ -759,6 +820,8 @@ void AirLabs::WinPlay()
             else what = Fmt("%.0f\xC2\xB0/s", s.path.speed);
             std::vector<std::string> pills = { where, Fmt("Target %.1f\xC2\xB0", s.target), what,
                                                s.runLength > 0.f ? Fmt("%.0f s run", s.runLength) : std::string("Endless") };
+            if ((s.mode == kTrack || s.mode == kChase) && s.runLength > 0.f)
+                pills.push_back("Max " + FmtInt(std::llround(1000.0 * s.runLength))); // 1000 points a second on the ball
             if (s.aim == 1) pills.push_back("Wheels aim");
             if (s.noRoll) pills.push_back("No air roll");
             const int n = static_cast<int>(pills.size());
@@ -1552,7 +1615,7 @@ void AirLabs::WinLeaderboard()
     }
     {
         FontScope f(small);
-        ImGui::TextDisabled("Everyone's best one-minute run on every preset. Every run comes with its replay, so you can watch any of them.");
+        ImGui::TextDisabled("Everyone's best one-minute run on every preset, with their Rocket League ranks. Watch any run that has a replay.");
     }
     ImGui::Dummy(ImVec2(0, 2));
 
@@ -1680,6 +1743,7 @@ void AirLabs::WinLeaderboard()
         std::string title = board.title.empty() ? std::string(ModeName(lbMode)) + " " + PresetLabel(lbMode, lbPreset) : board.title;
         DrawText(dl, uiFonts[kFontHeading], ImVec2(p.x + 18.f, p.y + 14.f), kText, title.c_str());
         std::string count = board.loaded && board.total > 0 ? (board.total == 1 ? "1 player" : FmtInt(board.total) + " players") : std::string();
+        if (board.loaded && board.max > 0) count += (count.empty() ? "" : "  \xC2\xB7  ") + std::string("max ") + FmtInt(board.max);
         const float tw = TextSize(uiFonts[kFontHeading], title.c_str()).x;
         DrawText(dl, small, ImVec2(p.x + 18.f + tw + 12.f, p.y + 14.f + SizeOf(uiFonts[kFontHeading]) - SizeOf(small) - 2.f), kFaint, count.c_str());
         ImGui::SetCursorScreenPos(ImVec2(p.x + inner - 90.f, p.y + 14.f));
@@ -1688,6 +1752,22 @@ void AirLabs::WinLeaderboard()
         dl->AddLine(ImVec2(p.x, p.y + 52.f), ImVec2(p.x + inner, p.y + 52.f), kBorder);
     }
     const float rowH = 42.f;
+    const float rankW = 38.f, rankGap = 6.f, ranksRight = inner - 230.f - 110.f; // three rank icons, left of the score
+    bool anyRank = false;
+    for (const LbRow& r : board.rows) for (int i = 0; i < 3; ++i) anyRank |= r.rank[i] >= 0;
+    if (anyRank && !board.rows.empty())
+    {
+        // labels for the Rocket League rank column: 1s 2s 3s
+        const ImVec2 q = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(inner, 22.f));
+        static const char* pl[3] = { "1s", "2s", "3s" };
+        for (int i = 0; i < 3; ++i)
+        {
+            const float cx = q.x + ranksRight - (3 - i) * (rankW + rankGap) + rankW * 0.5f;
+            DrawText(dl, small, ImVec2(cx - TextSize(small, pl[i]).x * 0.5f, q.y + 4.f), kFaint, pl[i]);
+        }
+        DrawText(dl, small, ImVec2(q.x + ranksRight - 3 * (rankW + rankGap) - TextSize(small, "Rocket League").x - 10.f, q.y + 4.f), kFaint, "Rocket League");
+    }
     auto drawRow = [&](const LbRow& r, bool mine, bool alt) {
         ImVec2 p = ImGui::GetCursorScreenPos();
         ImGui::PushID(r.run);
@@ -1697,12 +1777,11 @@ void AirLabs::WinLeaderboard()
         const float cy = p.y + rowH * 0.5f;
         const std::string pos = "#" + std::to_string(r.pos);
         DrawText(dl, bold, ImVec2(p.x + 18.f, cy - SizeOf(bold) * 0.5f), r.pos == 1 ? kGold : r.pos <= 3 ? kText : kDim, pos.c_str());
-        RankState rs;
-        rs.value = TierIndex(static_cast<float>(r.score), lbMode, lbPreset, lbRange) / 3.f + 0.001f;
-        rs.runs = kPlacementRuns;
-        const float bw = RankBadge(rs, 22.f, small, dl, ImVec2(p.x + 76.f, cy - 11.f));
-        const float nx = p.x + 76.f + std::max(bw, 30.f) + 14.f;
+        const float nx = p.x + 76.f;
         DrawText(dl, bold, ImVec2(nx, cy - SizeOf(bold) * 0.5f), kText, r.name.c_str());
+        if (anyRank)
+            for (int i = 0; i < 3; ++i)
+                RealRankBadge(r.rank[i], 22.f, small, dl, ImVec2(p.x + ranksRight - (3 - i) * (rankW + rankGap), cy - 11.f));
         const float nw = TextSize(bold, r.name.c_str()).x;
         DrawText(dl, small, ImVec2(nx + nw + 10.f, cy - SizeOf(small) * 0.5f + 1.f), kFaint, (r.platform + (mine ? "  \xC2\xB7  you" : "")).c_str());
         const std::string sc = FmtInt(r.score);
@@ -1711,12 +1790,18 @@ void AirLabs::WinLeaderboard()
         DrawText(dl, small, ImVec2(scoreRight + 24.f, cy - SizeOf(small) * 0.5f), kFaint, r.date.c_str());
         ImGui::SetCursorScreenPos(ImVec2(p.x + inner - 104.f, cy - 15.f));
         const bool thisLoading = loading == r.run;
-        if (Chip("##watch", thisLoading ? "Loading" : "Watch", false, small, 30.f) && loading == 0)
+        if (!r.replay)
+        {
+            ImGui::Dummy(ImVec2(80.f, 30.f));
+            DrawText(dl, small, ImVec2(p.x + inner - 100.f, cy - SizeOf(small) * 0.5f), kFaint, "No replay");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("A saved best from before AirLabs recorded replays");
+        }
+        else if (Chip("##watch", thisLoading ? "Loading" : "Watch", false, small, 30.f) && loading == 0)
         {
             WatchReplay(r.run);
             closeRequested = true; // close the window: the replay plays in the game
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Watch this run in the game (in Freeplay; it loads the map if you're not there)");
+        if (r.replay && ImGui::IsItemHovered()) ImGui::SetTooltip("Watch this run in the game (in Freeplay; it loads the map if you're not there)");
         ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + rowH));
         ImGui::PopID();
     };
@@ -1728,7 +1813,7 @@ void AirLabs::WinLeaderboard()
     };
     if (!board.error.empty() && board.rows.empty()) message(board.error.c_str(), kWarn);
     else if (!board.loaded) message("Loading...", kDim);
-    else if (board.rows.empty()) message("No runs on this board yet. Play it with Post my runs on, and the top spot is yours.", kDim);
+    else if (board.rows.empty()) message("No runs on this board yet. Play it and the top spot is yours.", kDim);
     else
     {
         bool meShown = false;

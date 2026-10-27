@@ -16,6 +16,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <ctime>
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -38,6 +40,25 @@ namespace
         case OnlinePlatform_OldNNX: return "Switch";
         default: return "Unknown";
         }
+    }
+
+    // "2.8.0" newer than "2.7.2"?
+    bool NewerVersion(const std::string& a, const std::string& b)
+    {
+        int x[3] = {}, y[3] = {};
+        std::sscanf(a.c_str(), "%d.%d.%d", &x[0], &x[1], &x[2]);
+        std::sscanf(b.c_str(), "%d.%d.%d", &y[0], &y[1], &y[2]);
+        for (int i = 0; i < 3; ++i) if (x[i] != y[i]) return x[i] > y[i];
+        return false;
+    }
+    // A saved run's "YYYY-MM-DD HH:MM" (your local time) as unix seconds, 0 if unreadable.
+    long long StampSeconds(const std::string& when)
+    {
+        std::tm tm{};
+        if (std::sscanf(when.c_str(), "%d-%d-%d %d:%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min) < 3) return 0;
+        tm.tm_year -= 1900; tm.tm_mon -= 1; tm.tm_isdst = -1;
+        const std::time_t t = std::mktime(&tm);
+        return t < 0 ? 0 : static_cast<long long>(t);
     }
 
     std::string Thousands(long long v)
@@ -105,6 +126,8 @@ void AirLabs::LoadLeaderboardFile()
     std::lock_guard<std::mutex> lock(lbMutex);
     lbKey = t.Get("key");
     lbPid = t.Get("pid");
+    const std::vector<std::string> rk = SplitTabs(t.Get("ranks"));
+    for (int i = 0; i < 3 && i < static_cast<int>(rk.size()); ++i) lbRealRank[i] = std::clamp(std::atoi(rk[i].c_str()), -1, 22 * 4 + 3);
 }
 
 void AirLabs::SaveLeaderboardFileLocked() const
@@ -113,7 +136,7 @@ void AirLabs::SaveLeaderboardFileLocked() const
     std::error_code ec;
     std::filesystem::create_directories(DataDir(), ec);
     std::ofstream f(DataDir() / "leaderboard.txt", std::ios::trunc);
-    f << "key " << lbKey << "\npid " << lbPid << "\n";
+    f << "key " << lbKey << "\npid " << lbPid << "\nranks " << lbRealRank[0] << "\t" << lbRealRank[1] << "\t" << lbRealRank[2] << "\n";
 }
 
 void AirLabs::UploadRun(const Replay& r, bool post)
@@ -134,12 +157,8 @@ void AirLabs::UploadRun(const Replay& r, bool post)
         }
     }
 
-    // Who you are: your platform account id (the leaderboard's key for you) and your name.
-    UniqueIDWrapper uid = gameWrapper->GetUniqueID();
-    const OnlinePlatform plat = uid.GetPlatform();
-    std::string id = plat == OnlinePlatform_Epic ? uid.GetEpicAccountID() : std::to_string(uid.GetUID());
-    if (id.empty() || id == "0") id = uid.GetEpicAccountID();
-    if (id.empty() || id == "0")
+    PendingRun p;
+    if (!PlayerIdentity(p.platform, p.id, p.name))
     {
         std::lock_guard<std::mutex> lock(lbMutex);
         lbStatus = "Not posted: couldn't read your Rocket League account.";
@@ -147,11 +166,7 @@ void AirLabs::UploadRun(const Replay& r, bool post)
         lbStatusWall = Wall();
         return;
     }
-    PendingRun p;
     p.board = board;
-    p.platform = PlatformName(plat);
-    p.id = id;
-    p.name = Utf8FromWide(gameWrapper->GetPlayerName().ToWideString());
     p.score = r.score;
     p.replayB64 = Base64Encode(SerializeReplay(r));
     if (!post)
@@ -167,6 +182,19 @@ void AirLabs::UploadRun(const Replay& r, bool post)
     }
     cvarManager->log("[AirLabs] posting run to the leaderboard (" + board + ", " + std::to_string(r.score) + ")");
     SendRun(std::move(p));
+}
+
+// Who you are: your platform account id (the leaderboard's key for you) and your name.
+bool AirLabs::PlayerIdentity(std::string& platform, std::string& id, std::string& name)
+{
+    UniqueIDWrapper uid = gameWrapper->GetUniqueID();
+    const OnlinePlatform plat = uid.GetPlatform();
+    id = plat == OnlinePlatform_Epic ? uid.GetEpicAccountID() : std::to_string(uid.GetUID());
+    if (id.empty() || id == "0") id = uid.GetEpicAccountID();
+    if (id.empty() || id == "0") return false;
+    platform = PlatformName(plat);
+    name = Utf8FromWide(gameWrapper->GetPlayerName().ToWideString());
+    return true;
 }
 
 std::filesystem::path AirLabs::PendingDir() const { return DataDir() / "pending"; }
@@ -233,10 +261,11 @@ bool AirLabs::SavePendingLocked(PendingRun& p)
 // new best, or refused) leaves the queue.
 void AirLabs::SendRun(PendingRun p)
 {
-    std::string key;
+    std::string key, ranks;
     {
         std::lock_guard<std::mutex> lock(lbMutex);
         key = lbKey; // the current key, so a run queued before your first post uses the key that post got
+        ranks = RanksFieldLocked();
         lbUploading = true;
         if (p.file.empty()) { lbStatus = "Posting to the leaderboard..."; lbStatusGood = true; lbStatusWall = Wall(); }
     }
@@ -244,7 +273,7 @@ void AirLabs::SendRun(PendingRun p)
     req.url = LbUrl("/api/runs?format=text");
     req.verb = "POST";
     req.body = "{\"player\":{\"platform\":" + JsonString(p.platform) + ",\"id\":" + JsonString(p.id) + ",\"name\":" + JsonString(p.name) +
-               "},\"key\":" + JsonString(key) + ",\"replay\":\"" + p.replayB64 + "\"}";
+               "},\"key\":" + JsonString(key) + ",\"ranks\":" + JsonString(ranks) + ",\"replay\":\"" + p.replayB64 + "\"}";
     auto alive = lbAlive;
     HttpWrapper::SendCurlJsonRequest(req, [this, alive, p](int code, std::string result) mutable {
         if (!alive->load()) return;
@@ -446,6 +475,7 @@ void AirLabs::FetchBoard(const std::string& key, bool force)
         b.loaded = true;
         b.title = t.Get("title");
         b.total = t.GetInt("total");
+        b.max = t.GetInt("max");
         b.rows.clear();
         for (const auto& l : t.lines)
         {
@@ -455,6 +485,16 @@ void AirLabs::FetchBoard(const std::string& key, bool force)
             LbRow row;
             row.pos = std::atoi(f[0].c_str()); row.pid = f[1]; row.name = f[2]; row.platform = f[3];
             row.score = std::atoi(f[4].c_str()); row.date = f[5]; row.run = std::atoi(f[6].c_str());
+            if (f.size() >= 11) // 2.8.0 servers: replay (1/0), then 1v1/2v2/3v3 ranks as "tier.div" or "-"
+            {
+                row.replay = f[7] != "0";
+                for (int i = 0; i < 3; ++i)
+                {
+                    int tier = 0, div = 0;
+                    if (std::sscanf(f[8 + i].c_str(), "%d.%d", &tier, &div) == 2 && tier >= 0 && tier <= 22 && div >= 0 && div <= 3)
+                        row.rank[i] = tier * 4 + div;
+                }
+            }
             b.rows.push_back(row);
         }
         b.mePos = b.meScore = b.meRun = 0;
@@ -606,26 +646,173 @@ void AirLabs::EndReplay()
     lbStatusWall = Wall();
 }
 
-// What the game tells us about your own Rocket League rank, written to the console (and
-// bakkesmod.log). Playlists: 10 = 1v1, 11 = 2v2, 13 = 3v3. Tier 0 = unranked, 1 = Bronze I ..
-// 22 = Supersonic Legend; division 0-3 = Div I-IV.
-void AirLabs::LogRealRank(const std::string& when)
+// Your Rocket League ranks, as the game reports them (playlists 10 = 1v1, 11 = 2v2, 13 = 3v3;
+// tier 0 = unranked, 1 = Bronze I .. 22 = Supersonic Legend; division 0-3). A playlist the game
+// hasn't loaded keeps the last rank it reported. Written to the console (and bakkesmod.log) too.
+void AirLabs::RefreshRealRanks(const std::string& when)
 {
-    gameWrapper->Execute([this, when](GameWrapper* gw) {
+    auto alive = lbAlive;
+    gameWrapper->Execute([this, alive, when](GameWrapper* gw) {
+        if (!alive->load()) return;
         std::string line = "[AirLabs] rank check (" + when + "):";
         MMRWrapper mmr = gw->GetMMRWrapper();
         if (mmr.memory_address == 0) { cvarManager->log(line + " no MMR data at all"); return; }
         UniqueIDWrapper uid = gw->GetUniqueID();
         if (mmr.IsSyncing(uid)) line += " (syncing)";
-        for (int pl : { 10, 11, 13 })
+        static const int playlists[3] = { 10, 11, 13 };
+        int got[3] = { -1, -1, -1 };
+        for (int i = 0; i < 3; ++i)
         {
+            const int pl = playlists[i];
             const bool synced = mmr.IsSynced(uid, pl);
             const SkillRank r = mmr.GetPlayerRank(uid, pl);
             const float v = mmr.GetPlayerMMR(uid, pl);
+            if (synced && r.Tier >= 0 && r.Tier <= 22 && r.Division >= 0 && r.Division <= 3) got[i] = r.Tier * 4 + r.Division;
             line += " | playlist " + std::to_string(pl) + (synced ? " synced" : " NOT synced") + ", tier " + std::to_string(r.Tier) +
                     ", div " + std::to_string(r.Division) + ", games " + std::to_string(r.MatchesPlayed) + ", mmr " + std::to_string(static_cast<int>(v));
         }
         cvarManager->log(line);
+        std::lock_guard<std::mutex> lock(lbMutex);
+        bool changed = false;
+        for (int i = 0; i < 3; ++i)
+            if (got[i] >= 0 && got[i] != lbRealRank[i]) { lbRealRank[i] = got[i]; changed = true; }
+        if (changed) SaveLeaderboardFileLocked();
+    });
+}
+
+std::string AirLabs::RanksFieldLocked() const
+{
+    std::string out;
+    for (int i = 0; i < 3; ++i)
+    {
+        if (i) out += ',';
+        out += lbRealRank[i] < 0 ? std::string("-") : std::to_string(lbRealRank[i] / 4) + "." + std::to_string(lbRealRank[i] % 4);
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Your saved bests: the best score on every preset board from your own runs.csv, including runs
+// from before the leaderboard existed (those have no replay). Sent each time the plugin loads;
+// the server keeps whichever is higher, so only new bests change anything.
+// ---------------------------------------------------------------------------------------------
+void AirLabs::SendSavedBests(int attempt)
+{
+    if (!lbPost || !*lbPost) return; // posting is off: not this time
+    std::string platform, id, name;
+    if (!PlayerIdentity(platform, id, name)) return;
+    struct Best { int score = -1, targets = 0, misses = 0; float onPct = -1.f; long long date = 0; };
+    std::map<std::string, Best> bests;
+    {
+        std::lock_guard<std::mutex> lock(recordsMutex);
+        for (const RunRecord& r : records)
+        {
+            if (!r.counted || r.userPreset > 0 || r.preset < 0 || r.preset >= PresetCount(r.mode)) continue;
+            if (NewerVersion("2.5.0", r.version)) continue; // presets and scoring are the same from 2.5.0 on
+            if (PresetUsesRange(r.mode, r.preset) && (r.range < 0 || r.range >= kRangeCount)) continue;
+            Best& b = bests[BoardKey(r.mode, r.preset, r.range, r.NoRoll())];
+            if (r.score <= b.score) continue;
+            b.score = r.score; b.targets = r.targets; b.misses = r.misses; b.onPct = r.onPct; b.date = StampSeconds(r.when);
+        }
+    }
+    if (bests.empty()) return;
+    std::string key, ranks;
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        key = lbKey;
+        ranks = RanksFieldLocked();
+    }
+    std::string list;
+    for (const auto& [board, b] : bests)
+    {
+        if (!list.empty()) list += ',';
+        list += "{\"board\":" + JsonString(board) + ",\"score\":" + std::to_string(b.score) + ",\"targets\":" + std::to_string(b.targets) +
+                ",\"misses\":" + std::to_string(b.misses) + (b.onPct >= 0.f ? ",\"onPct\":" + std::to_string(b.onPct) : std::string()) +
+                (b.date > 0 ? ",\"date\":" + std::to_string(b.date) : std::string()) + "}";
+    }
+    CurlRequest req;
+    req.url = LbUrl("/api/bests?format=text");
+    req.verb = "POST";
+    req.body = "{\"player\":{\"platform\":" + JsonString(platform) + ",\"id\":" + JsonString(id) + ",\"name\":" + JsonString(name) +
+               "},\"key\":" + JsonString(key) + ",\"ranks\":" + JsonString(ranks) + ",\"version\":" + JsonString(PluginVersion()) +
+               ",\"bests\":[" + list + "]}";
+    cvarManager->log("[AirLabs] sending your saved bests to the leaderboard (" + std::to_string(bests.size()) + " boards)");
+    auto alive = lbAlive;
+    HttpWrapper::SendCurlJsonRequest(req, [this, alive, attempt](int code, std::string result) {
+        if (!alive->load()) return;
+        TextReply t = ParseTextReply(result);
+        std::string msg;
+        bool retry = false;
+        {
+            std::lock_guard<std::mutex> lock(lbMutex);
+            const std::string newKey = t.Get("key"), pid = t.Get("pid");
+            bool save = false;
+            if (!newKey.empty() && newKey != lbKey) { lbKey = newKey; save = true; }
+            if (!pid.empty() && pid != lbPid) { lbPid = pid; save = true; }
+            if (save) SaveLeaderboardFileLocked();
+            if (code == 200 && t.Get("ok") == "1")
+            {
+                msg = "[AirLabs] saved bests: " + t.Get("message", "sent.");
+                if (t.GetInt("posted") > 0)
+                {
+                    lbStatus = "Leaderboard: " + t.Get("message");
+                    lbStatusGood = true;
+                    lbStatusWall = Wall();
+                    for (auto& [k, b] : lbBoards) b.fetchedWall = 0.0; // show the new standings
+                    lbServerBest.clear();                                // and learn your bests again
+                }
+            }
+            else
+            {
+                retry = (code == 0 || code == 418 || code == 429 || code >= 500) && attempt < 8;
+                msg = "[AirLabs] saved bests not sent (" + std::to_string(code) + " " + t.Get("error") + ")" + (retry ? ", trying again in 30 s" : "");
+            }
+        }
+        gameWrapper->Execute([this, alive, msg, retry, attempt](GameWrapper* gw) {
+            if (!alive->load()) return;
+            cvarManager->log(msg);
+            if (retry) gw->SetTimeout([this, alive, attempt](GameWrapper*) { if (alive->load()) SendSavedBests(attempt + 1); }, 30.f);
+        });
+    });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Updates: the leaderboard server says which version is on bakkesplugins; a newer one shows an
+// Update button in the sidebar, which has BakkesMod install it (bpm_install, as the website's
+// "Install with BakkesMod" button does).
+// ---------------------------------------------------------------------------------------------
+void AirLabs::CheckForUpdate()
+{
+    CurlRequest req;
+    req.url = LbUrl("/api/version?format=text");
+    req.verb = "GET";
+    auto alive = lbAlive;
+    HttpWrapper::SendCurlRequest(req, [this, alive](int code, std::string result) {
+        if (!alive->load() || code != 200) return;
+        TextReply t = ParseTextReply(result);
+        const std::string latest = t.Get("latest");
+        std::lock_guard<std::mutex> lock(lbMutex);
+        lbLatest = NewerVersion(latest, PluginVersion()) ? latest : std::string();
+        if (t.GetInt("plugin") > 0) lbPluginId = t.GetInt("plugin");
+    });
+}
+
+void AirLabs::StartUpdate()
+{
+    int id;
+    std::string to;
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        if (lbUpdating || lbLatest.empty()) return;
+        lbUpdating = true;
+        id = lbPluginId;
+        to = lbLatest;
+    }
+    auto alive = lbAlive;
+    gameWrapper->Execute([this, alive, id, to](GameWrapper*) {
+        if (!alive->load()) return;
+        cvarManager->log("[AirLabs] updating to " + to + " (bpm_install " + std::to_string(id) + ")");
+        cvarManager->executeCommand("bpm_install " + std::to_string(id), false);
     });
 }
 

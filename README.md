@@ -492,7 +492,19 @@ on boards of its own. The same boards are on the web at
 - **Watch** plays any run on the board in the game: your car and the ball follow the replay
   tick by tick, with the score building as it did in the run. Stop (or your `airlabs_toggle`
   key) ends it. Outside Freeplay, Watch loads the map first.
-- **Every run comes with its replay.** The plugin records the whole run, one sample per physics
+- **Your saved bests go up too.** Each time AirLabs loads (with posting on), it sends your best
+  score on every preset board from your own saved runs (`runs.csv`), from 2.5.0 on (presets and
+  scoring have been the same since then). Runs from before replays were recorded show
+  **No replay** instead of a Watch button. Only scores higher than what the board already has
+  for you change anything.
+- **Rocket League ranks.** Next to each name are that player's ranks in 1s, 2s and 3s, as their
+  game reported them to AirLabs (and kept from the last time it did). A dash means AirLabs
+  hasn't seen that rank; players without a rank are on the boards like everyone else.
+  `airlabs_rank` prints what the game reports.
+- **Max 60,000.** Track and Chase pay 1000 points a second on the ball, so a one-minute run
+  tops out at 60,000; the Up next card and those boards say so. Flick and Hybrid have no fixed
+  maximum.
+- **Every run posted from the game comes with its replay.** The plugin records the whole run, one sample per physics
   tick: the car's rotation and where the ball was, which is everything a score depends on. Anyone
   can watch any run, so a run that doesn't add up is plain to see. The server also plays each run
   back through the plugin's own rules and keeps that score with the run for reference.
@@ -500,6 +512,10 @@ on boards of its own. The same boards are on the web at
   tell players apart; never shown), and your best run per board with its replay. The first time
   you post, the server gives this install a key (`data/AirLabs/leaderboard.txt`), so nobody else
   can post as you. Turn posting off any time with **Stop posting**.
+
+**Updates.** When AirLabs loads it asks the leaderboard server which version is on
+bakkesplugins. If that's newer, an **Update** button appears in the sidebar; it has BakkesMod
+install the new version (`bpm_install 904`, as the website's install button does) and reload it.
 
 The server is a Cloudflare Worker with a D1 database, in `server/` (see `server/README.md`).
 

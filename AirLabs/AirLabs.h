@@ -199,11 +199,17 @@ private:
     void RecordTick(const Rotator& rot);
     void UploadRun(const airlabs::Replay& r, bool post); // post now, or (posting off) keep it to post once it's turned on
     // State shared with the HTTP callbacks (which run on another thread): lbMutex guards it.
-    struct LbRow { int pos = 0; std::string pid, name, platform; int score = 0; std::string date; int run = 0; };
+    struct LbRow
+    {
+        int pos = 0; std::string pid, name, platform; int score = 0; std::string date; int run = 0;
+        bool replay = true;          // false: a saved best from before replays were recorded
+        int rank[3] = { -1, -1, -1 }; // Rocket League 1v1, 2v2, 3v3: tier * 4 + division, -1 = not known
+    };
     struct LbBoard
     {
         std::string title, error;
         int total = 0, mePos = 0, meScore = 0, meRun = 0;
+        int max = 0;                  // the most a run can score here (Track and Chase: 60,000), 0 = no ceiling
         std::vector<LbRow> rows;
         bool loading = false, loaded = false;
         double fetchedWall = 0.0;
@@ -262,7 +268,21 @@ private:
     // Your keys for the prompts, read from bakkesmod/cfg/binds.cfg ("" = not bound).
     std::string menuKey, toggleKey;
     void RefreshKeys();
-    void LogRealRank(const std::string& when); // your Rocket League rank, as the game reports it, to the console
+    // Your Rocket League ranks (1v1, 2v2, 3v3: tier * 4 + division, -1 = never reported), as the
+    // game last reported them; kept in leaderboard.txt and sent with your uploads.
+    int lbRealRank[3] = { -1, -1, -1 };
+    void RefreshRealRanks(const std::string& when); // game thread: read them from the game (and log them)
+    std::string RanksFieldLocked() const;           // "tier.div,tier.div,tier.div" ("-" = not known); caller holds lbMutex
+    // Your saved best on every preset board goes up (runs from 2.5.0 on, with or without replays).
+    void SendSavedBests(int attempt = 0);
+    bool PlayerIdentity(std::string& platform, std::string& id, std::string& name); // game thread
+    // Updates: the newest version on bakkesplugins (from the leaderboard server), and the button.
+    std::string lbLatest;  // newer than this build, or empty
+    int lbPluginId = 904;  // AirLabs on bakkesplugins.com/plugin/904
+    bool lbUpdating = false;
+    void CheckForUpdate();
+    void StartUpdate();
+    static const char* PluginVersion();
 
     // flick
     double spawnTime = 0.0, nextSpawnAt = 0.0, lockStart = 0.0, firstReach = 0.0;
@@ -460,6 +480,8 @@ private:
     void EnsureRankIcons();
     // Draws your rank's badge at p (dl == nullptr: just measure). Returns its width (0 with no runs).
     float RankBadge(const airlabs::RankState& rs, float height, ImFont* font, ImDrawList* dl, ImVec2 p);
+    // A real Rocket League rank (tier * 4 + division, -1 = not known): its icon, or a text badge.
+    float RealRankBadge(int rank, float height, ImFont* font, ImDrawList* dl, ImVec2 p);
     bool RankChip(const char* id, const char* label, bool selected, ImFont* font, ImFont* badgeFont, const airlabs::RankState& rs, float height);
     float RankChipWidth(const char* label, ImFont* font, ImFont* badgeFont, const airlabs::RankState& rs, float height);
     void ToggleWindow();
