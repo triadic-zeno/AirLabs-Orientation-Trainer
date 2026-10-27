@@ -328,3 +328,12 @@ test('a picked name is shown instead of the game name; another player\'s name is
   assert.equal(env.DB.raw.prepare("SELECT game_name FROM players WHERE id = 'Epic:id-nm1'").get().game_name, 'User-12ab');
   assert.equal(JSON.stringify((await call(env, 'GET', '/api/boards/0-4-1-0')).json).includes('User-12ab'), false);
 });
+
+test('a saved best sent again with its input gets the input filled in', async () => {
+  const env = fresh();
+  const first = await bests(env, 'id-in1', [{ board: '0-4-1-0', score: 5000 }], undefined, undefined, '5.0.0.1');
+  assert.equal((await call(env, 'GET', '/api/boards/0-4-1-0')).json.entries[0].input, null);
+  rewindEpic(env, 'id-in1');
+  await bests(env, 'id-in1', [{ board: '0-4-1-0', score: 5000, input: 'controller' }], first.json.key, undefined, '5.0.0.1');
+  assert.equal((await call(env, 'GET', '/api/boards/0-4-1-0')).json.entries[0].input, 'controller');
+});

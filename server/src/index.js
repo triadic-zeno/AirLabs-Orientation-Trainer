@@ -290,6 +290,11 @@ async function postBests(req, env, text) {
   let posted = 0;
   for (const e of wanted.values()) {
     const prev = await env.DB.prepare('SELECT run, score FROM best WHERE board = ? AND player = ?').bind(e.board, id).first();
+    if (prev && e.score === prev.score && (e.input === 'keyboard' || e.input === 'controller')) {
+      // The same saved best sent again, now saying which input it was: fill that in.
+      await env.DB.prepare(`UPDATE runs SET flags = flags || ' ' || ? WHERE id = ? AND flags LIKE '%saved-best%'
+          AND flags NOT LIKE '%keyboard%' AND flags NOT LIKE '%controller%'`).bind(e.input, prev.run).run();
+    }
     if (prev && e.score <= prev.score) continue;
     const when = Number.isInteger(e.date) && e.date > 1500000000 && e.date <= t ? e.date : t;
     const int = (x) => (Number.isInteger(x) && x >= 0 && x < 100000 ? x : 0);
