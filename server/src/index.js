@@ -20,7 +20,7 @@ import { PAGE } from './page.js';
 const MIN_VERSION = [2, 6, 0];
 // The version players can update to: bump it once a release is live on bakkesplugins (installing
 // before that would fetch the old one). PLUGIN_ID is AirLabs on bakkesplugins.com/plugin/904.
-const LATEST_VERSION = '2.8.0';
+const LATEST_VERSION = '2.8.1';
 const PLUGIN_ID = 904;
 const MAX_BESTS = 300;         // boards per /api/bests upload (there are 151)
 const UPLOAD_GAP_SEC = 20;     // runs waiting from earlier go up one at a time; real runs take 60 s
