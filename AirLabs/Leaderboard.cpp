@@ -158,7 +158,7 @@ void AirLabs::UploadRun(const Replay& r, bool post)
     }
 
     PendingRun p;
-    if (!PlayerIdentity(p.platform, p.id, p.name))
+    if (!PlayerIdentity(p.platform, p.id, p.name, p.gameName))
     {
         std::lock_guard<std::mutex> lock(lbMutex);
         lbStatus = "Not posted: couldn't read your Rocket League account.";
@@ -185,7 +185,7 @@ void AirLabs::UploadRun(const Replay& r, bool post)
 }
 
 // Who you are: your platform account id (the leaderboard's key for you) and your name.
-bool AirLabs::PlayerIdentity(std::string& platform, std::string& id, std::string& name)
+bool AirLabs::PlayerIdentity(std::string& platform, std::string& id, std::string& name, std::string& gameName)
 {
     UniqueIDWrapper uid = gameWrapper->GetUniqueID();
     const OnlinePlatform plat = uid.GetPlatform();
@@ -193,7 +193,11 @@ bool AirLabs::PlayerIdentity(std::string& platform, std::string& id, std::string
     if (id.empty() || id == "0") id = uid.GetEpicAccountID();
     if (id.empty() || id == "0") return false;
     platform = PlatformName(plat);
-    name = Utf8FromWide(gameWrapper->GetPlayerName().ToWideString());
+    gameName = Utf8FromWide(gameWrapper->GetPlayerName().ToWideString());
+    std::string mine = lbCustomName ? *lbCustomName : std::string();
+    while (!mine.empty() && mine.back() == ' ') mine.pop_back();
+    while (!mine.empty() && mine.front() == ' ') mine.erase(mine.begin());
+    name = mine.empty() ? gameName : mine;
     return true;
 }
 
@@ -250,7 +254,7 @@ bool AirLabs::SavePendingLocked(PendingRun& p)
     auto line = [](const std::string& v) { std::string o = v; for (char& c : o) if (c == '\n' || c == '\r') c = ' '; return o; };
     std::ofstream f(p.file, std::ios::trunc);
     f << "board " << p.board << "\nscore " << p.score << "\nplatform " << line(p.platform) << "\nid " << line(p.id)
-      << "\nname " << line(p.name) << "\nreplay " << p.replayB64 << "\n";
+      << "\nname " << line(p.name) << "\ngamename " << line(p.gameName) << "\nreplay " << p.replayB64 << "\n";
     f.close();
     CountPendingLocked();
     return true;
@@ -273,6 +277,7 @@ void AirLabs::SendRun(PendingRun p)
     req.url = LbUrl("/api/runs?format=text");
     req.verb = "POST";
     req.body = "{\"player\":{\"platform\":" + JsonString(p.platform) + ",\"id\":" + JsonString(p.id) + ",\"name\":" + JsonString(p.name) +
+               (p.gameName.empty() ? std::string() : ",\"gameName\":" + JsonString(p.gameName)) +
                "},\"key\":" + JsonString(key) + ",\"ranks\":" + JsonString(ranks) + ",\"replay\":\"" + p.replayB64 + "\"}";
     auto alive = lbAlive;
     HttpWrapper::SendCurlJsonRequest(req, [this, alive, p](int code, std::string result) mutable {
@@ -368,6 +373,7 @@ void AirLabs::RetryPending()
     TextReply t = ParseTextReply(ss.str());
     PendingRun p;
     p.board = t.Get("board"); p.score = t.GetInt("score"); p.platform = t.Get("platform"); p.id = t.Get("id"); p.name = t.Get("name");
+    p.gameName = t.Get("gamename");
     p.replayB64 = t.Get("replay");
     p.file = file;
     if (p.board.empty() || p.id.empty() || p.replayB64.empty())
@@ -495,6 +501,7 @@ void AirLabs::FetchBoard(const std::string& key, bool force)
                         row.rank[i] = tier * 4 + div;
                 }
             }
+            if (f.size() >= 12) row.input = f[11] == "k" ? 1 : f[11] == "c" ? 0 : -1; // controller or keyboard
             b.rows.push_back(row);
         }
         b.mePos = b.meScore = b.meRun = 0;
@@ -699,9 +706,9 @@ std::string AirLabs::RanksFieldLocked() const
 void AirLabs::SendSavedBests(int attempt)
 {
     if (!lbPost || !*lbPost) return; // posting is off: not this time
-    std::string platform, id, name;
-    if (!PlayerIdentity(platform, id, name)) return;
-    struct Best { int score = -1, targets = 0, misses = 0; float onPct = -1.f; long long date = 0; };
+    std::string platform, id, name, gameName;
+    if (!PlayerIdentity(platform, id, name, gameName)) return;
+    struct Best { int score = -1, targets = 0, misses = 0; float onPct = -1.f; long long date = 0; bool keyboard = false; };
     std::map<std::string, Best> bests;
     {
         std::lock_guard<std::mutex> lock(recordsMutex);
@@ -713,6 +720,7 @@ void AirLabs::SendSavedBests(int attempt)
             Best& b = bests[BoardKey(r.mode, r.preset, r.range, r.NoRoll())];
             if (r.score <= b.score) continue;
             b.score = r.score; b.targets = r.targets; b.misses = r.misses; b.onPct = r.onPct; b.date = StampSeconds(r.when);
+            b.keyboard = r.flags.find("keyboard") != std::string::npos;
         }
     }
     if (bests.empty()) return;
@@ -728,12 +736,14 @@ void AirLabs::SendSavedBests(int attempt)
         if (!list.empty()) list += ',';
         list += "{\"board\":" + JsonString(board) + ",\"score\":" + std::to_string(b.score) + ",\"targets\":" + std::to_string(b.targets) +
                 ",\"misses\":" + std::to_string(b.misses) + (b.onPct >= 0.f ? ",\"onPct\":" + std::to_string(b.onPct) : std::string()) +
-                (b.date > 0 ? ",\"date\":" + std::to_string(b.date) : std::string()) + "}";
+                (b.date > 0 ? ",\"date\":" + std::to_string(b.date) : std::string()) +
+                ",\"input\":" + std::string(b.keyboard ? "\"keyboard\"" : "\"controller\"") + "}";
     }
     CurlRequest req;
     req.url = LbUrl("/api/bests?format=text");
     req.verb = "POST";
     req.body = "{\"player\":{\"platform\":" + JsonString(platform) + ",\"id\":" + JsonString(id) + ",\"name\":" + JsonString(name) +
+               ",\"gameName\":" + JsonString(gameName) +
                "},\"key\":" + JsonString(key) + ",\"ranks\":" + JsonString(ranks) + ",\"version\":" + JsonString(PluginVersion()) +
                ",\"bests\":[" + list + "]}";
     cvarManager->log("[AirLabs] sending your saved bests to the leaderboard (" + std::to_string(bests.size()) + " boards)");
@@ -781,6 +791,51 @@ void AirLabs::SendSavedBests(int attempt)
 // Update button in the sidebar, which has BakkesMod install it (bpm_install, as the website's
 // "Install with BakkesMod" button does).
 // ---------------------------------------------------------------------------------------------
+// The name shown on the boards: yours (airlabs_lb_name) or, blank, your Rocket League name. The
+// server keeps another player's name from being taken, and says which name it shows.
+void AirLabs::SendName()
+{
+    std::string platform, id, name, gameName;
+    if (!PlayerIdentity(platform, id, name, gameName)) return;
+    std::string key;
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        key = lbKey;
+        lbStatus = "Saving your name...";
+        lbStatusGood = true;
+        lbStatusWall = Wall();
+    }
+    CurlRequest req;
+    req.url = LbUrl("/api/name?format=text");
+    req.verb = "POST";
+    req.body = "{\"player\":{\"platform\":" + JsonString(platform) + ",\"id\":" + JsonString(id) + ",\"name\":" + JsonString(name) +
+               ",\"gameName\":" + JsonString(gameName) + "},\"key\":" + JsonString(key) + "}";
+    auto alive = lbAlive;
+    HttpWrapper::SendCurlJsonRequest(req, [this, alive](int code, std::string result) {
+        if (!alive->load()) return;
+        TextReply t = ParseTextReply(result);
+        std::lock_guard<std::mutex> lock(lbMutex);
+        const std::string newKey = t.Get("key"), pid = t.Get("pid");
+        bool save = false;
+        if (!newKey.empty() && newKey != lbKey) { lbKey = newKey; save = true; }
+        if (!pid.empty() && pid != lbPid) { lbPid = pid; save = true; }
+        if (save) SaveLeaderboardFileLocked();
+        if (code == 200 && t.Get("ok") == "1")
+        {
+            lbStatus = t.Get("message", "Name saved.");
+            lbStatusGood = t.Get("nameTaken") != "1";
+            for (auto& [k, b] : lbBoards) b.fetchedWall = 0.0; // show it on the boards
+        }
+        else
+        {
+            lbStatus = (code == 0 || code == 418) ? std::string("Couldn't reach the leaderboard: your name goes up with your next run.")
+                                                  : "Name not saved: " + t.Get("error", "server error " + std::to_string(code));
+            lbStatusGood = false;
+        }
+        lbStatusWall = Wall();
+    });
+}
+
 void AirLabs::CheckForUpdate()
 {
     {

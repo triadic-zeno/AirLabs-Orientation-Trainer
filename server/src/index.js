@@ -4,6 +4,7 @@
 //   POST /api/bests             a player's best score on each board, without replays (runs from
 //                               before the leaderboard; sent once by each install)
 //   GET  /api/version           the newest AirLabs on bakkesplugins (the plugin's Update button)
+//   POST /api/name              change the name shown on the boards
 //   GET  /api/boards            every board with its player count and leader
 //   GET  /api/boards/:board     one board (?limit=, ?me=<public id>)
 //   GET  /api/replays/:run      the replay of a run that is somebody's current best
@@ -38,6 +39,7 @@ export default {
       if (req.method === 'GET' && p === '/api/health') return reply({ ok: true }, text);
       if (req.method === 'POST' && p === '/api/runs') return await postRun(req, env, text);
       if (req.method === 'POST' && p === '/api/bests') return await postBests(req, env, text);
+      if (req.method === 'POST' && p === '/api/name') return await postName(req, env, text);
       if (req.method === 'GET' && p === '/api/version') return reply({ ok: true, latest: LATEST_VERSION, plugin: PLUGIN_ID }, text, 200, { 'cache-control': 'max-age=300' });
       if (req.method === 'GET' && p === '/api/boards') return await listBoards(env, text);
       let m;
@@ -110,14 +112,23 @@ export function parseRanks(s) {
   return out.some((x) => x !== null) ? out : null;
 }
 
-async function authPlayer(req, env, body, t) {
+// player.name is the name to show; player.gameName (AirLabs 2.8.2 on) is the one the game reports.
+// A name the player picked can't be another player's name (shown or in-game): then the game's
+// name is shown instead, and nameTaken says so. opts.upload = false: not an upload (no gap check).
+async function authPlayer(req, env, body, t, opts = { upload: true }) {
   const pl = body && body.player;
   if (!pl || typeof pl.id !== 'string' || typeof pl.platform !== 'string') return { error: [400, 'missing player'] };
   const platform = pl.platform.replace(/[^A-Za-z0-9]/g, '').slice(0, 16) || 'Unknown';
   const rawId = pl.id.replace(/[^A-Za-z0-9|_-]/g, '').slice(0, 80);
   if (rawId.length < 3 || /^0+$/.test(rawId)) return { error: [400, 'missing player id'] };
   const id = platform + ':' + rawId;
-  const name = cleanName(pl.name);
+  const gameName = cleanName(typeof pl.gameName === 'string' && pl.gameName ? pl.gameName : pl.name);
+  let name = cleanName(pl.name), nameTaken = false;
+  if (name !== gameName) {
+    const other = await env.DB.prepare(`SELECT 1 FROM players WHERE id != ?1 AND (lower(name) = lower(?2) OR lower(COALESCE(game_name, '')) = lower(?2)) LIMIT 1`)
+      .bind(id, name).first();
+    if (other) { name = gameName; nameTaken = true; }
+  }
 
   const player = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(id).first();
   let newKey = null;
@@ -127,7 +138,7 @@ async function authPlayer(req, env, body, t) {
       if (typeof body.key !== 'string' || (await sha256hex(body.key)) !== player.key_hash)
         return { error: [401, 'this Rocket League account is linked to another AirLabs install'] };
     } else newKey = randomKey();
-    if (t - player.last_upload < UPLOAD_GAP_SEC) return { error: [429, 'too many uploads, slow down'] };
+    if (opts.upload && t - player.last_upload < UPLOAD_GAP_SEC) return { error: [429, 'too many uploads, slow down'] };
   } else {
     const ip = req.headers.get('cf-connecting-ip') || 'local';
     const d = Math.floor(t / 86400);
@@ -139,18 +150,38 @@ async function authPlayer(req, env, body, t) {
   const pid = player ? player.pid : await publicId(id);
   const keyHash = newKey ? await sha256hex(newKey) : player.key_hash;
   if (player) {
-    await env.DB.prepare('UPDATE players SET name = ?, last_upload = ?, key_hash = ? WHERE id = ?').bind(name, t, keyHash, id).run();
+    await env.DB.prepare('UPDATE players SET name = ?, game_name = ?, last_upload = ?, key_hash = ? WHERE id = ?')
+      .bind(name, gameName, opts.upload ? t : player.last_upload, keyHash, id).run();
   } else {
-    await env.DB.prepare('INSERT INTO players (id, pid, name, platform, key_hash, created, last_upload) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .bind(id, pid, name, platform, keyHash, t, t).run();
+    await env.DB.prepare('INSERT INTO players (id, pid, name, game_name, platform, key_hash, created, last_upload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(id, pid, name, gameName, platform, keyHash, t, opts.upload ? t : 0).run();
   }
+  // Your own in-game name is yours: anyone showing it as a name they picked goes back to theirs.
+  await env.DB.prepare(`UPDATE players SET name = game_name WHERE id != ?1 AND game_name IS NOT NULL
+      AND lower(name) = lower(?2) AND lower(game_name) != lower(?2)`).bind(id, gameName).run();
   // Ranks the game reported this time replace the old ones; a playlist it didn't report keeps its old value.
   const ranks = parseRanks(body.ranks);
   if (ranks) {
     await env.DB.prepare(`UPDATE players SET rank1 = COALESCE(?, rank1), rank2 = COALESCE(?, rank2), rank3 = COALESCE(?, rank3),
         ranks_updated = ? WHERE id = ?`).bind(ranks[0], ranks[1], ranks[2], t, id).run();
   }
-  return { id, pid, name, platform, newKey };
+  return { id, pid, name, platform, newKey, nameTaken };
+}
+
+// ---------------------------------------------------------------------------------------------
+// POST /api/name  {"player": {"platform", "id", "name", "gameName"}, "key"}: the name to show on the boards
+// ---------------------------------------------------------------------------------------------
+async function postName(req, env, text) {
+  const bad = (status, error) => reply({ ok: false, error }, text, status);
+  const bodyText = await req.text();
+  if (bodyText.length > 4096) return bad(413, 'too large');
+  let body;
+  try { body = JSON.parse(bodyText); } catch { return bad(400, 'bad request'); }
+  if (!body || !body.player) return bad(400, 'missing player');
+  const who = await authPlayer(req, env, body, now(), { upload: false });
+  if (who.error) return bad(...who.error);
+  return reply({ ok: true, name: who.name, nameTaken: who.nameTaken, pid: who.pid, key: who.newKey,
+    message: who.nameTaken ? 'That name belongs to another player, so the boards show your Rocket League name.' : 'Your name on the boards: ' + who.name }, text);
 }
 
 // The most a run on this board can score: Track and Chase pay 1000 points a second for 60 s.
@@ -178,13 +209,14 @@ async function postRun(req, env, text) {
   const who = await authPlayer(req, env, body, t);
   if (who.error) return bad(...who.error);
   const { id, pid, newKey } = who;
+  const shown = { name: who.name, nameTaken: who.nameTaken || undefined };
 
   // ---- only a new personal best is checked and stored ----
   const prev = await env.DB.prepare('SELECT run, score FROM best WHERE board = ? AND player = ?').bind(board, id).first();
   if (prev && rep.score <= prev.score) {
     await env.DB.prepare('UPDATE best SET plays = plays + 1 WHERE board = ? AND player = ?').bind(board, id).run();
     const pos = await position(env, board, prev.score, null, prev.run, pid);
-    return reply({ ok: true, best: false, board, title: boardTitle(b), score: prev.score, pos: pos.pos, of: pos.total, pid, key: newKey,
+    return reply({ ok: true, best: false, board, title: boardTitle(b), score: prev.score, pos: pos.pos, of: pos.total, pid, key: newKey, ...shown,
       message: `Not a new best. Your best ${prev.score.toLocaleString('en-US')} is #${pos.pos} of ${pos.total}.` }, text);
   }
 
@@ -219,14 +251,15 @@ async function postRun(req, env, text) {
   await env.DB.batch(ops);
   const pos = await position(env, board, score, t, runId, pid);
   return reply({
-    ok: true, best: true, board, title: boardTitle(b), score, pos: pos.pos, of: pos.total, run: runId, pid, key: newKey,
+    ok: true, best: true, board, title: boardTitle(b), score, pos: pos.pos, of: pos.total, run: runId, pid, key: newKey, ...shown,
     message: `New best posted: #${pos.pos} of ${pos.total}.`,
   }, text);
 }
 
 // ---------------------------------------------------------------------------------------------
 // POST /api/bests  {"player", "key", "ranks", "version": "2.8.0",
-//                   "bests": [{"board": "0-4-1-0", "score": 12345, "targets": 20, "misses": 1, "onPct": 80.5, "date": <unix s>}]}
+//                   "bests": [{"board": "0-4-1-0", "score": 12345, "targets": 20, "misses": 1, "onPct": 80.5, "date": <unix s>,
+//                              "input": "controller" | "keyboard"}]}
 // A player's best score on each board from their own saved runs, including runs from before the
 // leaderboard (so without replays). Each one that beats what the board has for them goes up.
 // ---------------------------------------------------------------------------------------------
@@ -263,7 +296,8 @@ async function postBests(req, env, text) {
     const pct = typeof e.onPct === 'number' && e.onPct >= 0 && e.onPct <= 100 ? e.onPct : null;
     const ins = await env.DB.prepare(
       'INSERT INTO runs (player, board, score, created, version, targets, misses, on_pct, avg_time, flags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?) RETURNING id')
-      .bind(id, e.board, e.score, when, version, int(e.targets), int(e.misses), pct, 'noreplay saved-best').first();
+      .bind(id, e.board, e.score, when, version, int(e.targets), int(e.misses), pct,
+        'noreplay saved-best' + (e.input === 'keyboard' ? ' keyboard' : e.input === 'controller' ? ' controller' : '')).first();
     const ops = [env.DB.prepare(`INSERT INTO best (board, player, run, score, created) VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(board, player) DO UPDATE SET run = excluded.run, score = excluded.score, created = excluded.created`)
       .bind(e.board, id, ins.id, e.score, when)];
@@ -271,7 +305,7 @@ async function postBests(req, env, text) {
     await env.DB.batch(ops);
     ++posted;
   }
-  return reply({ ok: true, posted, of: wanted.size, pid, key: newKey,
+  return reply({ ok: true, posted, of: wanted.size, pid, key: newKey, name: who.name, nameTaken: who.nameTaken || undefined,
     message: posted ? `${posted} of your saved bests went up.` : 'Your saved bests were already up.' }, text);
 }
 
@@ -321,7 +355,7 @@ async function getBoard(env, key, url, text) {
   const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '100', 10) || 100));
   const me = (url.searchParams.get('me') || '').replace(/[^0-9a-f]/g, '').slice(0, 16);
   const { results } = await env.DB.prepare(`SELECT b.score, b.created, b.run, p.pid, p.name, p.platform, p.rank1, p.rank2, p.rank3,
-        r.targets, r.misses, r.on_pct, r.avg_time, (SELECT COUNT(*) FROM replays rp WHERE rp.run = b.run) AS has_replay
+        r.targets, r.misses, r.on_pct, r.avg_time, r.flags, (SELECT COUNT(*) FROM replays rp WHERE rp.run = b.run) AS has_replay
       FROM best b JOIN players p ON p.id = b.player JOIN runs r ON r.id = b.run
       WHERE b.board = ? AND p.banned = 0 AND r.hidden = 0
       ORDER BY b.score DESC, b.created ASC, b.run ASC LIMIT ?`).bind(key, limit).all();
@@ -334,17 +368,26 @@ async function getBoard(env, key, url, text) {
     if (row) mine = { pos: (await position(env, key, row.score, row.created, row.run, me)).pos, score: row.score, run: row.run, date: day(row.created) };
   }
   const rank = (v) => (v === null || v === undefined ? null : { tier: v >> 2, div: v & 3 });
+  // Controller or keyboard: runs with replays carry it (the replay check notes "keyboard"); saved
+  // bests say which from AirLabs 2.8.2 on, and older ones aren't known.
+  const input = (flags) => {
+    const f = ' ' + (flags || '') + ' ';
+    if (f.includes(' keyboard ')) return 'keyboard';
+    if (f.includes(' controller ') || !f.includes(' saved-best ')) return 'controller';
+    return null;
+  };
   const entries = results.map((x, i) => ({
     pos: i + 1, pid: x.pid, name: x.name, platform: x.platform, score: x.score,
     date: day(x.created), run: x.run, targets: x.targets, misses: x.misses, onPct: x.on_pct, avgTime: x.avg_time,
-    replay: x.has_replay > 0, ranks: [rank(x.rank1), rank(x.rank2), rank(x.rank3)],
+    replay: x.has_replay > 0, ranks: [rank(x.rank1), rank(x.rank2), rank(x.rank3)], input: input(x.flags),
   }));
   const max = maxScore(b) <= 60000 ? maxScore(b) : null; // only where there is a real ceiling
   if (text) {
-    // Old plugins read the first seven fields; replay (1/0) and the 1v1/2v2/3v3 ranks ("tier.div" or "-") follow.
+    // Old plugins read the first seven fields; replay (1/0), the 1v1/2v2/3v3 ranks ("tier.div" or "-")
+    // and the input (c = controller, k = keyboard, - = not known) follow.
     const r = (k) => (k ? k.tier + '.' + k.div : '-');
     return reply({ ok: true, board: key, title: boardTitle(b), total, max, me: mine,
-      rows: entries.map((e) => [e.pos, e.pid, cleanText(e.name), e.platform, e.score, e.date, e.run, e.replay ? 1 : 0, r(e.ranks[0]), r(e.ranks[1]), r(e.ranks[2])]) },
+      rows: entries.map((e) => [e.pos, e.pid, cleanText(e.name), e.platform, e.score, e.date, e.run, e.replay ? 1 : 0, r(e.ranks[0]), r(e.ranks[1]), r(e.ranks[2]), e.input === 'keyboard' ? 'k' : e.input ? 'c' : '-']) },
       true, 200, { 'cache-control': 'max-age=10' });
   }
   return reply({ ok: true, board: key, title: boardTitle(b), total, max, me: mine, entries }, false, 200, { 'cache-control': 'max-age=10' });

@@ -200,8 +200,9 @@ test('ranks go up with a run and come back on the board (JSON and plugin text)',
   assert.equal(e.replay, true);
   const t = await call(env, 'GET', '/api/boards/0-4-1-0?format=text');
   const row = /^row (.*)$/m.exec(t.text)[1].split('\t');
-  assert.equal(row.length, 11);
-  assert.deepEqual(row.slice(7), ['1', '15.2', '-', '19.0']);
+  assert.equal(row.length, 12);
+  assert.deepEqual(row.slice(7), ['1', '15.2', '-', '19.0', 'c']);
+  assert.equal(e.input, 'controller');
   // a later upload that only knows 2v2 keeps the others
   rewind(env, 'id-rk1');
   await call(env, 'POST', '/api/runs', { player: { platform: 'Steam', id: 'id-rk1', name: 'Ranked' }, key: r.json.key, ranks: '-,12.3,-', replay: toBase64(v28(fx('0-4-1-0'))) });
@@ -215,7 +216,7 @@ test('players without a known rank are on the board like everyone else', async (
   const e = (await call(env, 'GET', '/api/boards/3-1-1-1')).json.entries;
   assert.equal(e.length, 1);
   assert.deepEqual(e[0].ranks, [null, null, null]);
-  assert.match((await call(env, 'GET', '/api/boards/3-1-1-1?format=text')).text, /\t-\t-\t-$/m);
+  assert.match((await call(env, 'GET', '/api/boards/3-1-1-1?format=text')).text, /\t-\t-\t-\tc$/m);
 });
 
 test('bad ranks are ignored', async () => {
@@ -284,4 +285,46 @@ test('old versions cannot send saved bests; the latest version is published', as
   const v = await call(env, 'GET', '/api/version?format=text');
   assert.match(v.text, /^latest \d+\.\d+\.\d+$/m);
   assert.match(v.text, /^plugin 904$/m);
+});
+
+test('input: keyboard runs say so; saved bests carry theirs, older ones are not known', async () => {
+  const env = fresh();
+  const kb = v28(fx('0-4-1-0'));
+  kb[12] |= 2; // header byte 12 = flags: keyboard
+  const r = await post(env, 'id-kb1', 'Keys', kb);
+  assert.equal(r.status, 200, r.text);
+  await bests(env, 'id-kb2', [{ board: '0-4-1-0', score: 9000, input: 'keyboard' }], undefined, undefined, '7.0.0.2');
+  await bests(env, 'id-kb3', [{ board: '0-4-1-0', score: 8000, input: 'controller' }], undefined, undefined, '7.0.0.3');
+  await bests(env, 'id-kb4', [{ board: '0-4-1-0', score: 7000 }], undefined, undefined, '7.0.0.4');
+  const e = (await call(env, 'GET', '/api/boards/0-4-1-0')).json.entries;
+  assert.deepEqual(e.map((x) => [x.name, x.input]), [['Keys', 'keyboard'], ['Saver', 'keyboard'], ['Saver', 'controller'], ['Saver', null]]);
+  const t = (await call(env, 'GET', '/api/boards/0-4-1-0?format=text')).text;
+  assert.deepEqual([...t.matchAll(/^row .*\t([ck-])$/gm)].map((m) => m[1]), ['k', 'k', 'c', '-']);
+});
+
+// ---- 2.8.2: a name of your choosing ----
+const named = (env, id, name, gameName, key, ip) => call(env, 'POST', '/api/name', { player: { platform: 'Epic', id, name, gameName }, key }, ip);
+test('a picked name is shown instead of the game name; another player\'s name is not', async () => {
+  const env = fresh();
+  const me = await call(env, 'POST', '/api/runs', { player: { platform: 'Epic', id: 'id-nm1', name: 'User-12ab', gameName: 'User-12ab' }, replay: toBase64(v28(fx('0-4-1-0'))) }, '6.0.0.1');
+  assert.equal(me.status, 200, me.text);
+  const r = await named(env, 'id-nm1', 'SkyPilot', 'User-12ab', me.json.key, '6.0.0.1');
+  assert.equal(r.status, 200, r.text); // not an upload: no 20 s wait
+  assert.equal(r.json.name, 'SkyPilot');
+  assert.equal((await call(env, 'GET', '/api/boards/0-4-1-0')).json.entries[0].name, 'SkyPilot');
+  // someone else can't take it, or a real player's in-game name
+  await call(env, 'POST', '/api/runs', { player: { platform: 'Steam', id: 'id-nm2', name: 'JZR' }, replay: toBase64(v28(fx('0-4-1-0-better'))) }, '6.0.0.2');
+  const t1 = await named(env, 'id-nm3', 'SkyPilot', 'Copycat', undefined, '6.0.0.3');
+  assert.equal(t1.json.name, 'Copycat');
+  assert.equal(t1.json.nameTaken, true);
+  const t2 = await named(env, 'id-nm3', 'jzr', 'Copycat', t1.json.key, '6.0.0.3');
+  assert.equal(t2.json.name, 'Copycat');
+  // a name picked before its real owner turned up goes back when they do
+  const early = await named(env, 'id-nm4', 'RealPro', 'Early', undefined, '6.0.0.4');
+  assert.equal(early.json.name, 'RealPro');
+  await call(env, 'POST', '/api/runs', { player: { platform: 'Steam', id: 'id-nm5', name: 'RealPro' }, replay: toBase64(v28(fx('3-1-1-1'))) }, '6.0.0.5');
+  assert.equal(env.DB.raw.prepare("SELECT name FROM players WHERE id = 'Epic:id-nm4'").get().name, 'Early');
+  // and the game name is kept, never shown
+  assert.equal(env.DB.raw.prepare("SELECT game_name FROM players WHERE id = 'Epic:id-nm1'").get().game_name, 'User-12ab');
+  assert.equal(JSON.stringify((await call(env, 'GET', '/api/boards/0-4-1-0')).json).includes('User-12ab'), false);
 });

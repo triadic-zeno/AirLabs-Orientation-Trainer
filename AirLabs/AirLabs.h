@@ -207,6 +207,7 @@ private:
         int pos = 0; std::string pid, name, platform; int score = 0; std::string date; int run = 0;
         bool replay = true;          // false: a saved best from before replays were recorded
         int rank[3] = { -1, -1, -1 }; // Rocket League 1v1, 2v2, 3v3: tier * 4 + division, -1 = not known
+        int input = -1;               // 0 = controller, 1 = keyboard, -1 = not known
     };
     struct LbBoard
     {
@@ -235,7 +236,7 @@ private:
     // are retried every minute, or straight away with Retry now.
     struct PendingRun
     {
-        std::string board, platform, id, name, replayB64;
+        std::string board, platform, id, name, gameName, replayB64; // name = shown, gameName = the game's
         int score = 0;
         std::filesystem::path file; // set once it's saved in pending/
     };
@@ -278,7 +279,12 @@ private:
     std::string RanksFieldLocked() const;           // "tier.div,tier.div,tier.div" ("-" = not known); caller holds lbMutex
     // Your saved best on every preset board goes up (runs from 2.5.0 on, with or without replays).
     void SendSavedBests(int attempt = 0);
-    bool PlayerIdentity(std::string& platform, std::string& id, std::string& name); // game thread
+    // Your platform, account id, the name to show (yours from airlabs_lb_name, or the game's) and the game's name.
+    bool PlayerIdentity(std::string& platform, std::string& id, std::string& name, std::string& gameName); // game thread
+    std::shared_ptr<std::string> lbCustomName; // airlabs_lb_name: a name to show on the boards (blank = your Rocket League name)
+    char lbNameEdit[64] = {};
+    bool lbEditingName = false;
+    void SendName(); // tells the server the name to show (game thread)
     // Updates: the newest version on bakkesplugins (from the leaderboard server), and the button.
     std::string lbLatest;  // newer than this build, or empty
     int lbPluginId = 904;  // AirLabs on bakkesplugins.com/plugin/904

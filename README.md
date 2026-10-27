@@ -386,6 +386,10 @@ on boards of its own. The same boards are on the web at
   game reported them to AirLabs (and kept from the last time it did). A dash means AirLabs
   hasn't seen that rank; players without a rank are on the boards like everyone else.
   `airlabs_rank` prints what the game reports.
+- **Your name** on the boards is your Rocket League name, or one you pick with **Change name** on
+  the Leaderboard page. A name another player already uses can't be taken.
+- **Input:** each run shows whether it was played on a controller or a keyboard (AirLabs tells
+  from the stick: a keyboard only ever pushes all the way or not at all).
 - **Max 60,000.** Track and Chase pay 1000 points a second on the ball, so a one-minute run
   tops out at 60,000; the Up next card and those boards say so. Flick and Hybrid have no fixed
   maximum.

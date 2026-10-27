@@ -54,6 +54,8 @@ export const PAGE = `<!doctype html>
   .ranks .tier { min-width: 34px; padding: 2px 5px; margin-right: 4px; }
   .tier.none { background: transparent; color: var(--faint); border: 1px solid var(--border); font-weight: 500; }
   .tier.unr { background: #2a303d; color: var(--dim); }
+  td.input { color: var(--dim); font-size: 13px; white-space: nowrap; }
+  td.input svg { width: 18px; height: 13px; vertical-align: -2px; margin-right: 6px; }
   .detail, .date { color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; }
   .empty { padding: 36px 18px; text-align: center; color: var(--dim); }
   footer { margin-top: 22px; color: var(--faint); font-size: 13px; }
@@ -62,6 +64,7 @@ export const PAGE = `<!doctype html>
   @media (max-width: 640px) {
     .hide-sm, .plat { display: none; } td, th { padding-left: 8px; padding-right: 8px; } .sub { margin-left: 0; }
     td.pos { width: 30px; } .ranks .tier { min-width: 28px; padding: 1px 3px; margin-right: 2px; font-size: 11px; }
+    .input-name { display: none; } td.input svg { margin-right: 0; }
   }
 </style>
 </head>
@@ -96,6 +99,21 @@ const DARK_TEXT = new Set([0, 1, 2, 3, 7, 8]);
 const rankOf = (t) => t < 21 ? Math.floor(t / 3) : t === 21 ? 7 : 8;
 const RL_NAMES = ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond', 'Champion', 'Grand Champion'];
 // A player's real Rocket League rank in one playlist: {tier 0-22, div 0-3}, or null if not known.
+// Controller or keyboard (null = not known), as an icon and a word.
+const INPUT_ICON = {
+  controller: '<svg viewBox="0 0 24 16" aria-hidden="true"><path fill="currentColor" d="M6.5 1.5h11a5 5 0 0 1 4.7 3.3l1.2 4A3.6 3.6 0 0 1 17.6 12l-1.8-2H8.2l-1.8 2A3.6 3.6 0 0 1 .6 8.8l1.2-4A5 5 0 0 1 6.5 1.5z"/><path stroke="var(--card)" stroke-width="1.6" stroke-linecap="round" d="M7 4.6v3.2M5.4 6.2h3.2"/><circle cx="16.4" cy="5.2" r="1" fill="var(--card)"/><circle cx="18.2" cy="7.2" r="1" fill="var(--card)"/></svg>',
+  keyboard: '<svg viewBox="0 0 24 16" aria-hidden="true"><rect x="1" y="2" width="22" height="12" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M5 6h.5M8.5 6h.5M12 6h.5M15.5 6h.5M19 6h.5M5 9h.5M8.5 9h.5M12 9h.5M15.5 9h.5M19 9h.5M8 11.6h8"/></svg>',
+};
+function inputCell(inp) {
+  const name = inp === 'keyboard' ? 'Keyboard' : inp === 'controller' ? 'Controller' : null;
+  const td = el('td', { class: 'input', title: name || 'Input not known' });
+  if (!name) { td.append('-'); return td; }
+  const icon = document.createElement('span');
+  icon.innerHTML = INPUT_ICON[inp];
+  td.append(icon.firstChild, el('span', { class: 'input-name' }, name));
+  return td;
+}
+
 function rlPill(r, playlist) {
   if (!r) return el('span', { class: 'tier none', title: playlist + ': not known' }, '-');
   if (r.tier === 0) return el('span', { class: 'tier unr', title: playlist + ': Unranked' }, 'UNR');
@@ -159,7 +177,7 @@ async function go(push = true) {
     }
     const tracky = sel.mode === 1 || sel.mode === 3;
     const anyRank = r.entries.some((e) => (e.ranks || []).some(Boolean)); // ranks come from AirLabs 2.8.0 on
-    const head = el('tr', {}, el('th', {}, '#'), el('th', {}, 'Player'), anyRank ? el('th', { title: 'Rocket League ranks: 1v1, 2v2, 3v3' }, '1s \u00b7 2s \u00b7 3s') : '',
+    const head = el('tr', {}, el('th', {}, '#'), el('th', {}, 'Player'), anyRank ? el('th', { title: 'Rocket League ranks: 1v1, 2v2, 3v3' }, '1s \u00b7 2s \u00b7 3s') : '', el('th', {}, 'Input'),
       el('th', { class: 'hide-sm' }, tracky ? 'On the ball' : 'Targets'), el('th', { class: 'hide-sm' }, 'Date'), el('th', { class: 'score' }, 'Score'));
     const rows = r.entries.map((e) => {
       const ranks = el('td', { class: 'ranks' }, ...['1v1', '2v2', '3v3'].map((pl, i) => rlPill((e.ranks || [])[i], pl)));
@@ -168,6 +186,7 @@ async function go(push = true) {
         el('td', { class: 'pos' }, String(e.pos)),
         el('td', {}, el('span', { class: 'name' }, e.name), el('span', { class: 'plat' }, e.platform)),
         anyRank ? ranks : '',
+        inputCell(e.input),
         el('td', { class: 'detail hide-sm' }, detail),
         el('td', { class: 'date hide-sm' }, e.date),
         el('td', { class: 'score' }, e.score.toLocaleString('en-US')));

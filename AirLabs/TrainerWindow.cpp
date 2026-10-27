@@ -22,7 +22,7 @@ extern ImFont* g_otHeadingFont; // AirLabs.cpp: section headings use this when s
 
 namespace
 {
-    constexpr const char* kWinVersion = "2.8.1";
+    constexpr const char* kWinVersion = "2.8.2";
 
     // ---- palette ----
     constexpr ImU32 Rgb(int r, int g, int b, int a = 255) { return IM_COL32(r, g, b, a); }
@@ -1575,7 +1575,7 @@ void AirLabs::WinLeaderboard()
         uploading = lbUploading;
         pending = lbPendingCount;
         pid = lbPid;
-        name = lbName;
+        name = lbName; // the game's name; a picked one (airlabs_lb_name) is shown instead below
         loading = loadingRun;
         watchName = playName;
         playErr = playError;
@@ -1609,6 +1609,10 @@ void AirLabs::WinLeaderboard()
 
     // ---- posting: opt in, and how the last post went ----
     const bool posting = lbPost && *lbPost;
+    std::string picked = lbCustomName ? *lbCustomName : std::string();
+    while (!picked.empty() && picked.back() == ' ') picked.pop_back();
+    const std::string gameName = name;
+    if (!picked.empty()) name = picked;
     if (!posting)
     {
         Card c;
@@ -1618,9 +1622,8 @@ void AirLabs::WinLeaderboard()
             ImGui::TextUnformatted("Put your runs on the leaderboard");
         }
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kDim));
-        ImGui::TextWrapped("Your best run on each preset goes on this public leaderboard under your Rocket League name%s, with its replay so anyone can watch it. "
-                           "Only preset runs count, and the server checks every run by playing it back before it's accepted. "
-                           "While this is off, your best run on each board is kept here, and it goes up when you turn it back on.",
+        ImGui::TextWrapped("Your best run on each preset goes on this public leaderboard under your name%s, with its replay so anyone can watch it. "
+                           "Only preset runs count. While this is off, your best run on each board is kept here, and it goes up when you turn it back on.",
                            name.empty() ? "" : (" (" + name + ")").c_str());
         ImGui::PopStyleColor();
         ImGui::Dummy(ImVec2(0, 2));
@@ -1636,7 +1639,40 @@ void AirLabs::WinLeaderboard()
         Dot(kGood);
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kGood), "%s", name.empty() ? "Posting your runs" : ("Posting your runs as " + name).c_str());
         ImGui::SameLine(0, 14);
+        if (LinkButton("##lbname", "Change name", small)) { lbEditingName = !lbEditingName; std::snprintf(lbNameEdit, sizeof lbNameEdit, "%s", picked.c_str()); }
+        ImGui::SameLine(0, 14);
         if (LinkButton("##lbstop", "Stop posting", small)) SetCvarI("airlabs_lb_post", 0);
+    }
+    if (lbEditingName)
+    {
+        // The name on the boards: one you pick, or blank for your Rocket League name.
+        FontScope f(small);
+        auto setName = [this](const std::string& v) {
+            CVarWrapper cv = cvarManager->getCvar("airlabs_lb_name");
+            if (!cv.IsNull()) cv.setValue(v);
+            lbEditingName = false;
+            gameWrapper->Execute([this](GameWrapper*) { SendName(); });
+        };
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Name on the leaderboard");
+        ImGui::SameLine(0, 10);
+        ImGui::SetNextItemWidth(240.f);
+        const bool enter = ImGui::InputText("##lbnameinput", lbNameEdit, sizeof lbNameEdit, ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SameLine(0, 10);
+        if (Chip("##lbnamesave", "Save", true, small, 30.f) || enter)
+        {
+            std::string v = lbNameEdit;
+            while (!v.empty() && (v.back() == ' ' || v.back() == '\t')) v.pop_back();
+            while (!v.empty() && (v.front() == ' ' || v.front() == '\t')) v.erase(v.begin());
+            setName(v);
+        }
+        ImGui::SameLine(0, 12);
+        ImGui::AlignTextToFramePadding();
+        if (!picked.empty() && LinkButton("##lbnamegame", "Use my Rocket League name", small, kAccentHi)) setName("");
+        if (!picked.empty()) ImGui::SameLine(0, 12);
+        if (LinkButton("##lbnamecancel", "Cancel", small)) lbEditingName = false;
+        ImGui::TextDisabled("%s", ("Leave it blank to use your Rocket League name" + (gameName.empty() ? std::string() : " (" + gameName + ")") +
+                                   ". A name another player already uses can't be taken.").c_str());
     }
     if (!status.empty() || uploading)
     {
@@ -1756,21 +1792,26 @@ void AirLabs::WinLeaderboard()
                      lbPost && *lbPost ? "You're not on this board yet. Play it, and your best goes up."
                                        : "You're not on this board. Turn posting back on to put your runs up.");
     }
-    const float rankW = 38.f, rankGap = 6.f, ranksRight = inner - 230.f - 110.f; // three rank icons, left of the score
-    bool anyRank = false;
-    for (const LbRow& r : board.rows) for (int i = 0; i < 3; ++i) anyRank |= r.rank[i] >= 0;
-    if (anyRank && !board.rows.empty())
+    // Columns, right to left: Watch, date, score, input, the three Rocket League ranks.
+    const float rankW = 38.f, rankGap = 6.f, inputX = inner - 230.f - 170.f, ranksRight = inputX - 16.f;
+    bool anyRank = false, anyInput = false;
+    for (const LbRow& r : board.rows) { for (int i = 0; i < 3; ++i) anyRank |= r.rank[i] >= 0; anyInput |= r.input >= 0; }
+    if ((anyRank || anyInput) && !board.rows.empty())
     {
         // labels for the Rocket League rank column: 1s 2s 3s
         const ImVec2 q = ImGui::GetCursorScreenPos();
         ImGui::Dummy(ImVec2(inner, 22.f));
         static const char* pl[3] = { "1s", "2s", "3s" };
-        for (int i = 0; i < 3; ++i)
+        if (anyRank)
         {
-            const float cx = q.x + ranksRight - (3 - i) * (rankW + rankGap) + rankW * 0.5f;
-            DrawText(dl, small, ImVec2(cx - TextSize(small, pl[i]).x * 0.5f, q.y + 4.f), kFaint, pl[i]);
+            for (int i = 0; i < 3; ++i)
+            {
+                const float cx = q.x + ranksRight - (3 - i) * (rankW + rankGap) + rankW * 0.5f;
+                DrawText(dl, small, ImVec2(cx - TextSize(small, pl[i]).x * 0.5f, q.y + 4.f), kFaint, pl[i]);
+            }
+            DrawText(dl, small, ImVec2(q.x + ranksRight - 3 * (rankW + rankGap) - TextSize(small, "Rocket League").x - 10.f, q.y + 4.f), kFaint, "Rocket League");
         }
-        DrawText(dl, small, ImVec2(q.x + ranksRight - 3 * (rankW + rankGap) - TextSize(small, "Rocket League").x - 10.f, q.y + 4.f), kFaint, "Rocket League");
+        if (anyInput) DrawText(dl, small, ImVec2(q.x + inputX, q.y + 4.f), kFaint, "Input");
     }
     auto drawRow = [&](const LbRow& r, bool mine, bool alt) {
         ImVec2 p = ImGui::GetCursorScreenPos();
@@ -1786,6 +1827,26 @@ void AirLabs::WinLeaderboard()
         if (anyRank)
             for (int i = 0; i < 3; ++i)
                 RealRankBadge(r.rank[i], 22.f, small, dl, ImVec2(p.x + ranksRight - (3 - i) * (rankW + rankGap), cy - 11.f));
+        if (r.input >= 0) // a little controller or keyboard, and the word
+        {
+            const ImVec2 ic(p.x + inputX, cy - 6.f);
+            if (r.input == 0)
+            {
+                dl->AddRectFilled(ImVec2(ic.x, ic.y + 1.f), ImVec2(ic.x + 18.f, ic.y + 10.f), kDim, 4.5f);
+                dl->AddRectFilled(ImVec2(ic.x + 1.f, ic.y + 6.f), ImVec2(ic.x + 6.f, ic.y + 12.f), kDim, 2.5f);
+                dl->AddRectFilled(ImVec2(ic.x + 12.f, ic.y + 6.f), ImVec2(ic.x + 17.f, ic.y + 12.f), kDim, 2.5f);
+                dl->AddCircleFilled(ImVec2(ic.x + 13.5f, ic.y + 4.5f), 1.2f, kCard, 8);
+                dl->AddLine(ImVec2(ic.x + 3.f, ic.y + 4.5f), ImVec2(ic.x + 7.f, ic.y + 4.5f), kCard, 1.4f);
+                dl->AddLine(ImVec2(ic.x + 5.f, ic.y + 2.5f), ImVec2(ic.x + 5.f, ic.y + 6.5f), kCard, 1.4f);
+            }
+            else
+            {
+                dl->AddRect(ImVec2(ic.x, ic.y), ImVec2(ic.x + 18.f, ic.y + 12.f), kDim, 2.5f, ImDrawCornerFlags_All, 1.4f);
+                for (int k = 0; k < 4; ++k) dl->AddRectFilled(ImVec2(ic.x + 3.f + k * 3.5f, ic.y + 3.f), ImVec2(ic.x + 4.6f + k * 3.5f, ic.y + 4.6f), kDim);
+                dl->AddLine(ImVec2(ic.x + 5.f, ic.y + 8.5f), ImVec2(ic.x + 13.f, ic.y + 8.5f), kDim, 1.4f);
+            }
+            DrawText(dl, small, ImVec2(ic.x + 24.f, cy - SizeOf(small) * 0.5f), kDim, r.input == 1 ? "Keyboard" : "Controller");
+        }
         const float nw = TextSize(bold, r.name.c_str()).x;
         DrawText(dl, small, ImVec2(nx + nw + 10.f, cy - SizeOf(small) * 0.5f + 1.f), kFaint, (r.platform + (mine ? "  \xC2\xB7  you" : "")).c_str());
         const std::string sc = FmtInt(r.score);

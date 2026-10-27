@@ -18,14 +18,14 @@
 
 using namespace airlabs;
 
-BAKKESMOD_PLUGIN(AirLabs, "AirLabs", "2.8.1", PLUGINTYPE_FREEPLAY)
+BAKKESMOD_PLUGIN(AirLabs, "AirLabs", "2.8.2", PLUGINTYPE_FREEPLAY)
 
 // Set by the trainer window while it draws, so shared section headings use its font.
 ImFont* g_otHeadingFont = nullptr;
 
 namespace
 {
-    constexpr const char* kVersion = "2.8.1";
+    constexpr const char* kVersion = "2.8.2";
     // The public leaderboard (a Cloudflare Worker, see server/ in the source).
     constexpr const char* kLeaderboardUrl = "https://leaderboard.airlabs.workers.dev";
     const char* kTickEvent = "Function TAGame.Car_TA.SetVehicleInput";
@@ -477,6 +477,7 @@ void AirLabs::RegisterCvars()
     laserLength = mkF(6000.f); laserWidth = mkF(3.f); guideAccel = mkF(450.f); guideMode = mkI(0);
     laserToBall = mkB(true); laserColorMode = mkI(0); laserColor = std::make_shared<std::string>("#5AA0FF");
     lbPost = mkB(true); lbUrl = std::make_shared<std::string>(kLeaderboardUrl);
+    lbCustomName = std::make_shared<std::string>();
     showTips = mkB(true);
 
     reg("airlabs_mode", "1", "0 = Flick, 1 = Track (default), 2 = Hybrid, 3 = Chase", 0.f, static_cast<float>(kModeCount - 1)).bindTo(mode);
@@ -534,6 +535,7 @@ void AirLabs::RegisterCvars()
     reg("airlabs_tips", "1", "Show a training tip on the Play page", 0.f, 1.f).bindTo(showTips);
 
     // Leaderboard
+    cvarManager->registerCvar("airlabs_lb_name", "", "The name shown on the leaderboard (blank = your Rocket League name)", true, false, 0.f, false, 0.f, true).bindTo(lbCustomName);
     reg("airlabs_lb_post", "1", "Post your preset runs to the public AirLabs leaderboard (your best per preset, with its replay, under your Rocket League name). On by default", 0.f, 1.f).bindTo(lbPost);
     // Not saved to the config: a new version's server address always applies.
     cvarManager->registerCvar("airlabs_lb_url", kLeaderboardUrl, "AirLabs leaderboard server", true, false, 0.f, false, 0.f, false).bindTo(lbUrl);
