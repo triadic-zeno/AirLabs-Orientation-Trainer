@@ -1558,8 +1558,10 @@ void AirLabs::WinLab()
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kDim));
             ImGui::TextWrapped("Hold boost to move towards where your nose points. Let go and you keep drifting, like in a match: "
                                "only boost changes where you're going, so to slow down or turn, point somewhere else and boost. "
-                               "Your car stays put on screen and the ball moves instead.");
-            ImGui::TextWrapped("The blue circle shows where you're drifting (with your speed); the circle with an X is the opposite way.");
+                               "Your car stays put on screen and the ball moves instead. Touches work like Rocket League's: "
+                               "meet the ball gently and it stays close, hit it hard and it flies.");
+            ImGui::TextWrapped("The green circle with three ticks is where you're heading relative to the ball: put it on the ball "
+                               "and you'll hit it. The circle with an X is the opposite way: boost there to slow down before you arrive.");
             ImGui::PopStyleColor();
         }
         if (labOn)
@@ -1594,18 +1596,35 @@ void AirLabs::WinLab()
         ImGui::TextDisabled("Changes apply straight away, even while you play. Console: airlabs_lab starts and stops it.");
     }
 
+    // ---- on screen ----
+    {
+        ImGui::Dummy(ImVec2(0, 2));
+        const bool markers = *labMarkers, navball = *labNavball, dust = *labDust, noRoll = noAirRoll && *noAirRoll;
+        if (Chip("##labmark", markers ? "Markers: ON" : "Markers: OFF", markers, bold)) SetCvarI("airlabs_lab_markers", markers ? 0 : 1);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Where you're heading relative to the ball, and the opposite way");
+        ImGui::SameLine(0, 8);
+        if (Chip("##labnav", navball ? "Navball: ON" : "Navball: OFF", navball, bold)) SetCvarI("airlabs_lab_navball", navball ? 0 : 1);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Every direction around you on one disc: the middle is your nose, the rim is behind you.\nShows the ball, the markers and your drift (blue dot), even when they're off screen.");
+        ImGui::SameLine(0, 8);
+        if (Chip("##labdust", dust ? "Dust: ON" : "Dust: OFF", dust, bold)) SetCvarI("airlabs_lab_dust", dust ? 0 : 1);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Specks that streak past as you move");
+        ImGui::SameLine(0, 8);
+        if (Chip("##labnoroll", noRoll ? "No air roll: ON" : "No air roll: OFF", noRoll, bold)) SetCvarI("airlabs_noroll", noRoll ? 0 : 1);
+    }
+
     // ---- how the ball moves ----
     SectionLabel(small, "BALL MOTION");
     {
         const float gap = 12.f, tileW = (width - gap) * 0.5f;
-        if (Tile("##labrespawn", "Respawn", "Touch it and it flies off. A new ball appears, waits a moment, then launches.",
+        if (Tile("##labrespawn", "Respawn", "Each ball waits with an arrow showing where it'll go, then launches. Touch it and a new one appears.",
                  p.motion == kLabRespawn, ImVec2(tileW, 82.f), uiFonts[kFontHeading], small)) SetCvarI("airlabs_lab_motion", kLabRespawn);
         ImGui::SameLine(0, gap);
         if (Tile("##labconstant", "Constant", "The ball never stops: at the edge of the bubble it bounces back in a new direction.",
                  p.motion == kLabConstant, ImVec2(tileW, 82.f), uiFonts[kFontHeading], small)) SetCvarI("airlabs_lab_motion", kLabConstant);
     }
 
-    // ---- ball speed ----
+    ImGui::PushItemWidth(300.f);
+    // ---- ball speed: presets like Track's, or Dynamic ----
     SectionLabel(small, "BALL SPEED");
     {
         static const struct { const char* name; float v; } speeds[3] = { { "Slow", 400.f }, { "Medium", 800.f }, { "Fast", 1400.f } };
@@ -1613,26 +1632,55 @@ void AirLabs::WinLab()
         {
             if (i) ImGui::SameLine(0, 8);
             ImGui::PushID(i);
-            if (Chip("##labspd", speeds[i].name, std::fabs(p.speed - speeds[i].v) < 0.5f, bold, 34.f)) SetCvarF("airlabs_lab_speed", speeds[i].v);
+            if (Chip("##labspd", speeds[i].name, !p.dynamic && std::fabs(p.speed - speeds[i].v) < 0.5f, bold, 34.f))
+            {
+                SetCvarF("airlabs_lab_speed", speeds[i].v);
+                SetCvarI("airlabs_lab_dynamic", 0);
+            }
             ImGui::PopID();
         }
-        ImGui::PushItemWidth(300.f);
-        UiSliderF("Ball speed##lab", "How fast the ball moves after it launches or bounces, as you see it. Your car's top speed is 2300.",
-                  "airlabs_lab_speed", 100.f, 2300.f, "%.0f uu/s");
-        ImGui::PopItemWidth();
+        ImGui::SameLine(0, 8);
+        if (Chip("##labdyn", "Dynamic", p.dynamic, bold, 34.f)) SetCvarI("airlabs_lab_dynamic", p.dynamic ? 0 : 1);
+        if (p.dynamic)
+        {
+            UiSliderF("Slowest##lab", "Each launch or bounce picks a random speed between these.", "airlabs_lab_speed_min", 100.f, 2300.f, "%.0f uu/s");
+            UiSliderF("Fastest##lab", "Your car's top speed is 2300.", "airlabs_lab_speed_max", 100.f, 2300.f, "%.0f uu/s");
+        }
+        else
+        {
+            UiSliderF("Ball speed##lab", "How fast the ball moves after it launches or bounces. Your car's top speed is 2300.",
+                      "airlabs_lab_speed", 100.f, 2300.f, "%.0f uu/s");
+        }
+        UiSliderF("Curve##lab", "How fast the ball turns while it flies on its own (it picks a new way to curve every second). 0 = straight lines.",
+                  "airlabs_lab_curve", 0.f, 120.f, "%.0f deg/s");
     }
 
-    // ---- test settings ----
-    SectionLabel(small, "TEST SETTINGS");
-    ImGui::PushItemWidth(300.f);
-    UiSliderF("Bubble radius##lab", "The ball always stays within this distance of your car. On the standard field it stops at the floor, walls and roof (about 850 uu up or down); the space map has none.",
-              "airlabs_lab_bubble", 300.f, 2000.f, "%.0f uu");
+    // ---- where balls appear ----
+    SectionLabel(small, "RANGE AND DIRECTIONS");
+    {
+        static const struct { const char* name; float v; } ranges[3] = { { "Short", 500.f }, { "Medium", 800.f }, { "Long", 1200.f } };
+        for (int i = 0; i < 3; ++i)
+        {
+            if (i) ImGui::SameLine(0, 8);
+            ImGui::PushID(10 + i);
+            if (Chip("##labrng", ranges[i].name, std::fabs(p.bubble - ranges[i].v) < 0.5f, bold, 34.f)) SetCvarF("airlabs_lab_bubble", ranges[i].v);
+            ImGui::PopID();
+        }
+        UiSliderF("Bubble radius##lab", "The ball always stays within this distance of your car. On the standard field it also stops at the floor, walls and roof (about 850 uu up or down); the space map has none.",
+                  "airlabs_lab_bubble", 300.f, 2000.f, "%.0f uu");
+        UiSliderF("Around your nose##lab", "New balls appear within this angle of where your nose points. 180 = anywhere, 90 = never behind you.",
+                  "airlabs_lab_cone", 10.f, 180.f, "%.0f deg");
+        UiSliderF("Lowest##lab", "How far below (negative) or above the horizon a new ball can appear.", "airlabs_lab_height_min", -90.f, 90.f, "%.0f deg");
+        UiSliderF("Highest##lab", "Set both to 0 for balls level with the horizon only.", "airlabs_lab_height_max", -90.f, 90.f, "%.0f deg");
+    }
+
+    // ---- run ----
+    SectionLabel(small, "RUN");
+    UiSliderF("Run length##lab", "How long a run lasts, then it shows how you did. 0 = endless.", "airlabs_lab_run", 0.f, 300.f, "%.0f s");
     UiSliderF("Pass distance##lab", "A launched or bounced ball never heads straight at you: its path passes at least this far from your car's centre, so you always have to move to reach it. Bigger is harder.",
               "airlabs_lab_pass", 0.f, 600.f, "%.0f uu");
-    UiSliderF("Touch speed##lab", "How fast a ball you touch leaves your car. (Simple touches for now: how hard you hit it doesn't matter yet.)",
-              "airlabs_lab_hit", 300.f, 3000.f, "%.0f uu/s");
     if (p.motion == kLabRespawn)
-        UiSliderF("Wait before launch##lab", "How long a new ball waits before it takes off. Your speed resets with each new ball.",
+        UiSliderF("Wait before launch##lab", "How long a new ball waits (showing its arrow) before it takes off. Your speed resets with each new ball.",
                   "airlabs_lab_hang", 0.f, 3.f, "%.2f s");
     ImGui::PopItemWidth();
     ImGui::Dummy(ImVec2(0, 6));
@@ -1641,7 +1689,14 @@ void AirLabs::WinLab()
         SetCvarF("airlabs_lab_bubble", 800.f);
         SetCvarF("airlabs_lab_pass", 250.f);
         SetCvarF("airlabs_lab_speed", 800.f);
-        SetCvarF("airlabs_lab_hit", 1500.f);
+        SetCvarI("airlabs_lab_dynamic", 0);
+        SetCvarF("airlabs_lab_speed_min", 400.f);
+        SetCvarF("airlabs_lab_speed_max", 1400.f);
+        SetCvarF("airlabs_lab_curve", 0.f);
+        SetCvarF("airlabs_lab_cone", 180.f);
+        SetCvarF("airlabs_lab_height_min", -90.f);
+        SetCvarF("airlabs_lab_height_max", 90.f);
+        SetCvarF("airlabs_lab_run", 0.f);
         SetCvarF("airlabs_lab_hang", 0.75f);
     }
 }

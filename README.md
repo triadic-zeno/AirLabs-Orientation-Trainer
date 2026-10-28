@@ -422,23 +422,36 @@ in `tools/boostlab_test.cpp`.
   and letting go doesn't stop you. Turning doesn't change where you're going; only boost does. The
   ball has its own velocity, and is drawn where it is relative to you. Gravity pulls the car and
   the ball down equally, so it doesn't change how they move relative to each other and is left out.
-- **The bubble.** The ball always stays within the bubble around your car (800 uu by default, up to
-  2000 to test). On the standard field it also stops at the floor, walls and roof.
-- **Respawn:** a new ball appears anywhere in the bubble (any direction, evenly over the sphere),
-  waits 0.75 s, then launches. Touch it and it flies off; a new ball appears 0.6 s later. One that
-  reaches the edge untouched got away. Your speed resets with each new ball.
-- **Constant:** the ball never stops. At the edge of the bubble it bounces back inwards, at the set
-  speed as you see it, whatever you're doing, so it can't be lost.
-- **Never straight at you.** Launches and bounces pick a random direction whose path passes at least
-  the pass distance (250 uu) from your car's centre and crosses at least a bubble radius of the
-  bubble. From the edge that's 18-60 degrees off straight in.
-- **Touches are simple for now:** contact with your car's hitbox (read from your car) sends the ball
-  off at the touch speed (1500 uu/s) along the line from the hitbox's centre through the ball. How
-  hard you hit it doesn't matter yet; that's the next step.
-- **On screen:** specks of dust streak past as you move; a blue circle with three ticks shows where
-  you're drifting (with your speed), a circle with an X the opposite way. The ball has a ring
-  (yellow and pulsing while it waits), or an arrow at the screen's edge when it's off screen.
+- **The bubble.** The ball always stays within the bubble around your car (Short 500, Medium 800,
+  Long 1200 uu, or any size up to 2000). On the standard field it also stops at the floor, walls and roof.
+- **Respawn:** a new ball appears in the bubble (within the angle of your nose and the height band
+  you set), waits 0.75 s with an arrow showing where it'll go, then launches that way. Touch it and
+  a new ball appears 0.6 s later; one that reaches the edge untouched got away. Your speed resets
+  with each new ball.
+- **Constant:** the ball never stops. At the edge of the bubble it bounces back inwards at its own
+  real speed. Only if you're flying away faster than it could ever come back does it get carried
+  along with you, so it can't be lost.
+- **Never straight at you.** Launches and bounces pick a direction whose path (as you see it) passes
+  at least the pass distance (250 uu) from your car's centre and crosses at least a bubble radius
+  of the bubble. From the edge that's 18-60 degrees off straight in.
+- **Ball speed:** Slow 400, Medium 800, Fast 1400 uu/s, any speed, or Dynamic (a random speed for
+  each launch or bounce). **Curve:** a ball flying on its own turns at this many degrees a second,
+  picking a new way to curve every second. **Run length:** a run ends after this long (boost to go again).
+- **Touches** are Rocket League's ball-car hit as the community has measured it (RLUtilities): a
+  collision impulse from how fast the touching point of your car (including its spin) moves into
+  the ball, with friction (the car 180, the ball 30, the ball able to roll; the car is treated as
+  not turning from the hit), plus Psyonix's extra push of 0.65x the speed between car and ball
+  (0.55x at 2300, 0.30x at 4600) along car -> ball, with the part along the nose cut to 35%. Head-on
+  into a still ball: at 200 uu/s it leaves at 301 (130 away from your car); at 1500, at 2177.
+  Your car gets the recoil.
+- **On screen:** green markers show where you're heading relative to the ball (on the ball = you'll
+  hit it) and the opposite way (boost there to slow down). The ball has a ring (yellow and pulsing
+  while it waits), or an arrow at the screen's edge when it's off screen. Optional: a **navball**
+  (every direction on one disc: the middle is your nose, the rim behind you; with the horizon, the
+  ball, the markers and your own drift as a blue dot), and **dust** that streaks past as you move.
 - Boost reaches the game, so you see and hear it (it never runs out); jump is blocked.
+- `airlabs_lab_botprobe` (a test for a later simulated player): spawns a bot car and holds it next
+  to you for 20 s, logging where it is.
 
 ## Assists page
 
@@ -486,7 +499,9 @@ PC clock if it ever looks wrong; the Readout shows which is in use.
 | `airlabs_lb_post 1` / `airlabs_lb_post 0` | Post your preset runs to the leaderboard / stop |
 | `airlabs_lab` | Start or stop the Boost Lab (test) |
 | `airlabs_lab_motion 0` / `1` | Boost Lab: Respawn / Constant |
-| `airlabs_lab_bubble`, `airlabs_lab_pass`, `airlabs_lab_speed`, `airlabs_lab_hit`, `airlabs_lab_hang` | Boost Lab test settings (see "Boost Lab") |
+| `airlabs_lab_bubble`, `_pass`, `_speed`, `_dynamic`, `_speed_min`, `_speed_max`, `_curve`, `_cone`, `_height_min`, `_height_max`, `_run`, `_hang` | Boost Lab settings (see "Boost Lab") |
+| `airlabs_lab_markers`, `airlabs_lab_navball`, `airlabs_lab_dust` (1 / 0) | Boost Lab: relative markers (on), navball (off), dust (off) |
+| `airlabs_lab_botprobe` | Test: spawn a bot car and hold it next to you for 20 s |
 | `airlabs_watch <run>` | Watch a leaderboard run's replay (the number is the run's id on the server) |
 | `airlabs_lb_url <url>` | The leaderboard server (only change this for a server of your own) |
 
