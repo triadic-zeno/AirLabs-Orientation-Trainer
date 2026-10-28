@@ -41,7 +41,7 @@ backflip whose rotation sweeps the roof or back of the car into the ball.
 - **"The GAME moved its ball" fired hundreds of times, but it's a false alarm.** The amounts match one
   tick of the ball's own motion (7, 13 or 20 uu at 800, 1600 or 2400 uu/s), because
   `ball.GetLocation()` read straight after `SetLocation()` still returns the previous tick's
-  location. **Fix (written but not applied):** in `LabTick`, store
+  location. **Fixed in commit after d178748 (compiles; not yet run in game):** `LabTick` now stores
   `labPlacedBall = Add(pinLocation, rel)` (the location set) instead of
   `labPlacedBall = ball.GetLocation()`.
 - **Off-game:** 400 runs of 20 s of random realistic inputs (flips, mustys, boost, throttle, air roll,
@@ -60,7 +60,7 @@ backflip whose rotation sweeps the roof or back of the car into the ball.
      still ends up at the pin. Watch for jitter. Or read and steer the camera (`CameraWrapper`).
 2. **A lab rule.** The backflip pushes you back, the ball reaches the bubble's edge, and a bounce
    (Constant) or a new ball (Respawn) relaunches it. Check the bounce and ball counts around a flip.
-3. **Physics below the 6000 threshold.** Add the per-flip log that was being written: when RocketSim's
+3. **Physics below the 6000 threshold.** The per-flip log is now in (compiles; not yet run in game): when RocketSim's
    `CarState.isFlipping` goes true, log the ball's distance and its velocity relative to the car, and
    again 0.7 s later, with touches, bounces and balls since. Fields to add to `AirLabs.h`:
    `double labFlipLogAt; Vector labFlipRelBefore; int labFlipTouchesBefore;`.

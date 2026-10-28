@@ -398,6 +398,9 @@ private:
     bool labHavePlaced = false;
     int labGameMovedBall = 0, labGameTurnedCar = 0, labBallJumps = 0;
     double labLastDiagLog = -10.0;
+    double labFlipLogAt = -1.0;       // when to log how the ball is moving after a flip
+    Vector labFlipRelBefore{ 0.f, 0.f, 0.f };
+    int labFlipTouchesBefore = 0;
     std::shared_ptr<bool> labDebug;   // airlabs_lab_debug: the debug line on the HUD
     void LabDoFlip(CarWrapper car, const airlabs::Basis& b); // the lab's own flip (the game didn't)
     bool labOn = false;               // the lab is running (it has its own tick path)

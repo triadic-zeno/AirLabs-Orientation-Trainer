@@ -1755,9 +1755,29 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
     const int steps = tickTiming ? 1 : std::clamp(static_cast<int>(std::lround(dt * 120.f)), 1, 4);
     for (int i = 0; i < steps; ++i)
     {
+        const bool flippingBefore = labWorld.GetCarState().isFlipping;
         const Vector relBefore = labWorld.s.ballPos;
         const int ballsBefore = labWorld.s.balls, bouncesBefore = labWorld.s.bounces;
         labWorld.Step(p, in, rng, gameTime - (steps - 1 - i) / 120.0);
+        // A flip starting, and 0.7 s later: how the ball moves relative to you (to tell a real
+        // fling from the camera swinging round with the car).
+        if (!flippingBefore && labWorld.GetCarState().isFlipping)
+        {
+            labFlipLogAt = gameTime + 0.7;
+            labFlipRelBefore = Sub(labWorld.s.ballVel, labWorld.s.carVel);
+            labFlipTouchesBefore = labWorld.s.touches;
+            cvarManager->log("[AirLabs] Boost Lab: flip (stick pitch " + Fmt("%.2f", in.pitch) + Fmt(" yaw %.2f", in.yaw) + Fmt(" roll %.2f)", in.roll) +
+                             Fmt(": ball %.0f uu away", Len(labWorld.s.ballPos)) + Fmt(", moving at %.0f uu/s relative to you", Len(labFlipRelBefore)));
+        }
+        if (labFlipLogAt > 0.0 && gameTime >= labFlipLogAt)
+        {
+            labFlipLogAt = -1.0;
+            const Vector rel = Sub(labWorld.s.ballVel, labWorld.s.carVel);
+            cvarManager->log("[AirLabs] Boost Lab: 0.7 s after the flip: ball " + Fmt("%.0f uu away", Len(labWorld.s.ballPos)) +
+                             Fmt(", moving at %.0f uu/s relative to you", Len(rel)) + Fmt(" (up %.0f)", rel.Z) +
+                             Fmt(", your speed %.0f", Len(labWorld.s.carVel)) + Fmt(", ball speed %.0f", Len(labWorld.s.ballVel)) +
+                             Fmt(", touches since %.0f", labWorld.s.touches - labFlipTouchesBefore) + Fmt(", bounces %.0f", labWorld.s.bounces) + Fmt(", balls %.0f", labWorld.s.balls));
+        }
         // RocketSim's ball jumping to a huge speed relative to you (not a new ball or a bounce): log it.
         const float relSpeed = Len(Sub(labWorld.s.ballPos, relBefore)) * 120.f;
         if (relSpeed > 6000.f && labWorld.s.balls == ballsBefore && labWorld.s.bounces == bouncesBefore)
@@ -1826,7 +1846,7 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
         ball.SetLocation(Add(pinLocation, rel));
         ball.SetVelocity(V(0.f, 0.f, 0.f));
         ball.SetAngularVelocity(V(0.f, 0.f, 0.f), false);
-        labPlacedBall = ball.GetLocation();
+        labPlacedBall = Add(pinLocation, rel); // where it was put (the game reports a new location a tick late)
         labHavePlaced = true;
     }
 }
