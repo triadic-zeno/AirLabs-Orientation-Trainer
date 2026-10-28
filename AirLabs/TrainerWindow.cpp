@@ -1760,42 +1760,14 @@ void AirLabs::WinLeaderboard()
         dl->AddLine(ImVec2(p.x, p.y + 52.f), ImVec2(p.x + inner, p.y + 52.f), kBorder);
     }
     const float rowH = 42.f;
-    // ---- your spot, pinned at the top of the board ----
-    if (board.loaded)
-    {
-        const ImVec2 q = ImGui::GetCursorScreenPos();
-        const float h = 52.f;
-        ImGui::Dummy(ImVec2(inner, h));
-        dl->AddRectFilled(q, ImVec2(q.x + inner, q.y + h), kAccentBg);
-        dl->AddLine(ImVec2(q.x, q.y + h), ImVec2(q.x + inner, q.y + h), kBorder);
-        const float cy = q.y + h * 0.5f;
-        DrawText(dl, small, ImVec2(q.x + 18.f, cy - SizeOf(small) * 0.5f), kFaint, "YOU");
-        const float x = q.x + 76.f;
-        if (board.mePos > 0)
-        {
-            // #3 of 10, your best, top x%, and how far it is to the next place up.
-            const std::string place = "#" + std::to_string(board.mePos) + " of " + FmtInt(board.total);
-            DrawText(dl, uiFonts[kFontHeading], ImVec2(x, cy - SizeOf(uiFonts[kFontHeading]) * 0.5f), board.mePos == 1 ? kGold : kText, place.c_str());
-            float tx = x + TextSize(uiFonts[kFontHeading], place.c_str()).x + 18.f;
-            std::string more = "your best " + FmtInt(board.meScore);
-            if (board.total > 1) more += "  \xC2\xB7  top " + std::to_string(std::max(1, static_cast<int>(std::ceil(100.0 * board.mePos / board.total)))) + "%";
-            if (board.mePos == 1) more += "  \xC2\xB7  nobody has beaten you";
-            else if (board.mePos - 2 < static_cast<int>(board.rows.size()))
-            {
-                const int gap = board.rows[board.mePos - 2].score - board.meScore + 1; // a tie goes to whoever got there first
-                more += "  \xC2\xB7  " + FmtInt(std::max(1, gap)) + " points to #" + std::to_string(board.mePos - 1);
-            }
-            DrawText(dl, bold, ImVec2(tx, cy - SizeOf(bold) * 0.5f), kDim, more.c_str());
-        }
-        else
-            DrawText(dl, bold, ImVec2(x, cy - SizeOf(bold) * 0.5f), kDim,
-                     lbPost && *lbPost ? "You're not on this board yet. Play it, and your best goes up."
-                                       : "You're not on this board. Turn posting back on to put your runs up.");
-    }
     // Columns, right to left: Watch, date, score, input, the three Rocket League ranks.
     const float rankW = 38.f, rankGap = 6.f, inputX = inner - 230.f - 170.f, ranksRight = inputX - 16.f;
     bool anyRank = false, anyInput = false;
     for (const LbRow& r : board.rows) { for (int i = 0; i < 3; ++i) anyRank |= r.rank[i] >= 0; anyInput |= r.input >= 0; }
+    {
+        std::lock_guard<std::mutex> lock(lbMutex);
+        if (board.mePos > 0) for (int i = 0; i < 3; ++i) anyRank |= lbRealRank[i] >= 0;
+    }
     if ((anyRank || anyInput) && !board.rows.empty())
     {
         // labels for the Rocket League rank column: 1s 2s 3s
@@ -1848,7 +1820,9 @@ void AirLabs::WinLeaderboard()
             DrawText(dl, small, ImVec2(ic.x + 24.f, cy - SizeOf(small) * 0.5f), kDim, r.input == 1 ? "Keyboard" : "Controller");
         }
         const float nw = TextSize(bold, r.name.c_str()).x;
-        DrawText(dl, small, ImVec2(nx + nw + 10.f, cy - SizeOf(small) * 0.5f + 1.f), kFaint, (r.platform + (mine ? "  \xC2\xB7  you" : "")).c_str());
+        const std::string tag = r.platform + (mine ? std::string(r.platform.empty() ? "" : "  \xC2\xB7  ") + "you" : "") +
+                                (r.note.empty() ? "" : "  \xC2\xB7  " + r.note);
+        DrawText(dl, small, ImVec2(nx + nw + 10.f, cy - SizeOf(small) * 0.5f + 1.f), mine && !r.note.empty() ? kDim : kFaint, tag.c_str());
         const std::string sc = FmtInt(r.score);
         const float scoreRight = p.x + inner - 230.f;
         DrawText(dl, bold, ImVec2(scoreRight - TextSize(bold, sc.c_str()).x, cy - SizeOf(bold) * 0.5f), kText, sc.c_str());
@@ -1876,6 +1850,36 @@ void AirLabs::WinLeaderboard()
         const ImVec2 ts = TextSize(uiFonts[kFontBody], text, inner - 40.f);
         DrawText(dl, uiFonts[kFontBody], ImVec2(p.x + (inner - ts.x) * 0.5f, p.y + (70.f - ts.y) * 0.5f), col, text, inner - 40.f);
     };
+    // ---- your spot, pinned above the list: a row like the others (Watch included), so you never
+    //      have to scroll down to yourself ----
+    if (board.loaded && board.mePos > 0)
+    {
+        LbRow me;
+        me.pos = board.mePos; me.score = board.meScore; me.run = board.meRun; me.date = board.meDate;
+        me.replay = board.meReplay; me.input = board.meInput; me.pid = pid; me.name = name.empty() ? std::string("You") : name;
+        for (const LbRow& r : board.rows) if (r.pid == pid) { me.platform = r.platform; for (int i = 0; i < 3; ++i) me.rank[i] = r.rank[i]; }
+        if (me.platform.empty())
+        {
+            std::lock_guard<std::mutex> lock(lbMutex);
+            for (int i = 0; i < 3; ++i) me.rank[i] = lbRealRank[i];
+        }
+        if (board.total > 1) me.note = "top " + std::to_string(std::max(1, static_cast<int>(std::ceil(100.0 * board.mePos / board.total)))) + "%";
+        if (board.mePos > 1 && board.mePos - 2 < static_cast<int>(board.rows.size()))
+            me.note += "  \xC2\xB7  " + FmtInt(std::max(1, board.rows[board.mePos - 2].score - board.meScore + 1)) + " to #" + std::to_string(board.mePos - 1);
+        drawRow(me, true, false);
+        const ImVec2 q = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(inner, 6.f));
+        dl->AddRectFilled(ImVec2(q.x, q.y + 2.f), ImVec2(q.x + inner, q.y + 4.f), kBorder);
+    }
+    else if (board.loaded)
+    {
+        const ImVec2 q = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(inner, 42.f));
+        dl->AddRectFilled(q, ImVec2(q.x + inner, q.y + 42.f), kAccentBg);
+        DrawText(dl, bold, ImVec2(q.x + 18.f, q.y + 21.f - SizeOf(bold) * 0.5f), kDim,
+                 lbPost && *lbPost ? "You're not on this board yet. Play it, and your best goes up."
+                                   : "You're not on this board. Turn posting back on to put your runs up.");
+    }
     if (!board.error.empty() && board.rows.empty()) message(board.error.c_str(), kWarn);
     else if (!board.loaded) message("Loading...", kDim);
     else if (board.rows.empty()) message("No runs on this board yet. Play it and the top spot is yours.", kDim);

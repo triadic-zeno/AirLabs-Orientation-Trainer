@@ -512,6 +512,9 @@ void AirLabs::FetchBoard(const std::string& key, bool force)
             if (f.size() >= 3)
             {
                 b.mePos = std::atoi(f[0].c_str()); b.meScore = std::atoi(f[1].c_str()); b.meRun = std::atoi(f[2].c_str());
+                b.meDate = f.size() > 3 ? f[3] : std::string();
+                b.meReplay = f.size() > 4 ? f[4] != "0" : true;
+                b.meInput = f.size() > 5 ? (f[5] == "k" ? 1 : f[5] == "c" ? 0 : -1) : -1;
                 int& best = lbServerBest[key];
                 best = std::max(best, b.meScore);
             }

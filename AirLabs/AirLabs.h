@@ -208,11 +208,14 @@ private:
         bool replay = true;          // false: a saved best from before replays were recorded
         int rank[3] = { -1, -1, -1 }; // Rocket League 1v1, 2v2, 3v3: tier * 4 + division, -1 = not known
         int input = -1;               // 0 = controller, 1 = keyboard, -1 = not known
+        std::string note;             // extra words after the name (your pinned row: top x%, points to the next place)
     };
     struct LbBoard
     {
         std::string title, error;
-        int total = 0, mePos = 0, meScore = 0, meRun = 0;
+        int total = 0, mePos = 0, meScore = 0, meRun = 0, meInput = -1;
+        bool meReplay = true;
+        std::string meDate;
         int max = 0;                  // the most a run can score here (Track and Chase: 60,000), 0 = no ceiling
         std::vector<LbRow> rows;
         bool loading = false, loaded = false;

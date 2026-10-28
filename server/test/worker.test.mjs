@@ -53,7 +53,7 @@ test('the plugin text format', async () => {
   const pid = /^pid (\w+)$/m.exec(r.text)[1];
   const b = await call(env, 'GET', `/api/boards/2-0-1-0?format=text&me=${pid}`);
   assert.match(b.text, /^total 1$/m);
-  assert.match(b.text, /^me 1\t43777\t\d+\t\d{4}-\d\d-\d\d$/m);
+  assert.match(b.text, /^me 1\t43777\t\d+\t\d{4}-\d\d-\d\d\t1\tc$/m);
   const row = /^row (.*)$/m.exec(b.text)[1].split('\t');
   assert.equal(row[0], '1');
   assert.equal(row[2], 'TabName');

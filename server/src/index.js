@@ -354,6 +354,15 @@ async function listBoards(env, text) {
     200, { 'cache-control': 'max-age=30' });
 }
 
+// Controller or keyboard: runs with replays carry it (the replay check notes "keyboard"); saved
+// bests say which from AirLabs 2.8.2 on, and older ones aren't known.
+function inputOf(flags) {
+  const f = ' ' + (flags || '') + ' ';
+  if (f.includes(' keyboard ')) return 'keyboard';
+  if (f.includes(' controller ') || !f.includes(' saved-best ')) return 'controller';
+  return null;
+}
+
 async function getBoard(env, key, url, text) {
   const b = parseBoard(key);
   if (!b) return reply({ ok: false, error: 'no such board' }, text, 404);
@@ -368,19 +377,15 @@ async function getBoard(env, key, url, text) {
       WHERE b.board = ? AND p.banned = 0 AND r.hidden = 0`).bind(key).first()).n;
   let mine = null;
   if (me) {
-    const row = await env.DB.prepare(`SELECT b.score, b.created, b.run FROM best b JOIN players p ON p.id = b.player JOIN runs r ON r.id = b.run
+    const row = await env.DB.prepare(`SELECT b.score, b.created, b.run, r.flags, (SELECT COUNT(*) FROM replays rp WHERE rp.run = b.run) AS has_replay
+        FROM best b JOIN players p ON p.id = b.player JOIN runs r ON r.id = b.run
         WHERE b.board = ? AND p.pid = ? AND p.banned = 0 AND r.hidden = 0`).bind(key, me).first();
-    if (row) mine = { pos: (await position(env, key, row.score, row.created, row.run, me)).pos, score: row.score, run: row.run, date: day(row.created) };
+    // (plugin text: pos, score, run, date, then replay 1/0 and input c/k/- for 2.8.2 on)
+    if (row) mine = { pos: (await position(env, key, row.score, row.created, row.run, me)).pos, score: row.score, run: row.run, date: day(row.created),
+      replay: row.has_replay > 0 ? 1 : 0, input: inputOf(row.flags) === 'keyboard' ? 'k' : inputOf(row.flags) ? 'c' : '-' };
   }
   const rank = (v) => (v === null || v === undefined ? null : { tier: v >> 2, div: v & 3 });
-  // Controller or keyboard: runs with replays carry it (the replay check notes "keyboard"); saved
-  // bests say which from AirLabs 2.8.2 on, and older ones aren't known.
-  const input = (flags) => {
-    const f = ' ' + (flags || '') + ' ';
-    if (f.includes(' keyboard ')) return 'keyboard';
-    if (f.includes(' controller ') || !f.includes(' saved-best ')) return 'controller';
-    return null;
-  };
+  const input = inputOf;
   const entries = results.map((x, i) => ({
     pos: i + 1, pid: x.pid, name: x.name, platform: x.platform, score: x.score,
     date: day(x.created), run: x.run, targets: x.targets, misses: x.misses, onPct: x.on_pct, avgTime: x.avg_time,
