@@ -446,13 +446,24 @@ in `tools/boostlab_test.cpp`.
   against a field; open space has none, so with it off only how you move relative to the ball counts
   and an air dribble can go on for ever (gravity cancels between car and ball, as it does in a real one).
 - **Flips** (Off / Real / Infinite; Real by default): jump with the stick flips, jump without it is a
-  double jump. Real gives one for each new ball and each bounce, plus one for every **flip reset**
-  (the ball touching the underside of your car, where the wheels are; "FLIP RESET" shows). The game
-  does the flip itself when it will (the plugin tells it the car has jumped and still has its flip,
-  and adds the game's push to your momentum), so flip cancels and stalls feel like the real thing.
-  If the game doesn't respond to a press, the lab does the flip itself from then on: Rocket League's
-  push (RocketSim's numbers: 500 uu/s, flattened to level, up to 1.9x sideways and 2.5 x 16/15
-  backwards at top speed; a double jump is 291.7 along the roof) and a 0.65 s turn at 5.5 rad/s.
+  double jump. Jump reaches the game, and the game does the flip itself (its rotation, cancels and
+  stalls); the plugin adds the game's push to your momentum (the car is pinned with no speed each
+  tick, so the push shows up as the car's velocity on the next tick). The game keeps track of your
+  flip itself; the plugin only tells it you have one when you'd really get one: each new ball and
+  bounce (Real), or once a flip has finished (Infinite).
+- **Flip resets are the game's own.** The car's real wheels (read from the game) are contact points
+  in the lab's physics: a soft touch, as the suspension gives, with no Psyonix push. The real ball
+  is placed against the real wheels, so the game sees its own wheels touch the ball and gives the
+  flip back by its own rule (three or more wheels), with Rocket League's flip reset sound and effect
+  (added in v2.66).
+- **If the game won't flip a car held in the air** (it said the car had a flip but no push came within
+  4 ticks), the lab does the flips by its own rules from then on: Rocket League's push (RocketSim's
+  numbers: 500 uu/s, flattened to level, up to 1.9x sideways and 2.5 x 16/15 backwards at top speed;
+  a double jump is 291.7 along the roof), a 0.65 s turn at 5.5 rad/s, and flip resets when three
+  wheels are within 8 uu (suspension reach) of the ball.
+- **Debug line (on for now, `airlabs_lab_debug`):** jump presses, flips, flip resets, who does the
+  flips (game or lab) and whether the game says you have a flip. Every jump press is also written to
+  the F6 console with the game's flip state.
 - **A Respawn ball you keep touching stays:** a new one comes 1.5 s after your last touch (or when it
   reaches the edge), so you can dribble it.
 - **Never straight at you.** Launches and bounces pick a direction whose path (as you see it) passes

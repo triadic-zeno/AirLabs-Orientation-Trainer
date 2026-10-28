@@ -394,6 +394,10 @@ private:
     double labSimFlipUntil = -1.0;    // the lab's own flip: turning the car until then
     float labSimFlipX = 0.f, labSimFlipY = 0.f;
     double labFlipFlash = -10.0, labResetFlash = -10.0;
+    double labLastDodge = -10.0, labLastGrant = -10.0; // the game's last flip, and when it was last told you have one
+    bool labNeedsGrant = true, labGameHadFlip = false;
+    int labSeenBalls = 0, labSeenBounces = 0, labJumpPresses = 0, labGameResets = 0;
+    std::shared_ptr<bool> labDebug;   // airlabs_lab_debug: the debug line on the HUD
     void LabDoFlip(CarWrapper car, const airlabs::Basis& b); // the lab's own flip (the game didn't)
     bool labOn = false;               // the lab is running (it has its own tick path)
     bool labNeedsStart = true;        // set up the car and the first ball on the next tick

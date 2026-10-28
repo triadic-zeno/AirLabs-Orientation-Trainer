@@ -26,7 +26,10 @@
 //
 // Flips: the game does the flip itself when it can (the plugin adds its push to your momentum);
 // LabFlipImpulse is Rocket League's flip push for when it can't. Real flips: one for each new ball
-// (and each bounce), and one for each flip reset (the ball on your wheels).
+// (and each bounce), and one for each flip reset. The wheels are contact points of their own (a
+// soft touch, as the suspension gives); three or more on the ball is a flip reset, as Rocket League
+// decides it. The plugin places the real ball against the real wheels, so the game sees the same
+// contact and plays its own flip reset effect.
 //
 // Touches use Rocket League's ball-car hit as the community has measured it (RLUtilities):
 // a collision impulse from how fast the car's contact point (including its spin) moves into
@@ -57,6 +60,7 @@ namespace airlabs
     constexpr float kLabFlipBackScale = 2.5f;      // the backwards push, likewise
     constexpr float kLabFlipDeadzone  = 0.5f;      // |pitch| + |yaw| + |roll| below this: a double jump instead of a flip
     constexpr float kLabFlipTime      = 0.65f;     // s, how long a flip turns the car
+    constexpr float kLabSuspensionReach = 8.f;     // uu, a wheel can reach down this far on its suspension to touch the ball
     constexpr float kLabCurveAxisSec  = 1.f;       // s, a curving ball picks a new way to curve this often
     constexpr float kLabReactSec      = 0.4f;      // s, reachable check: time to react and turn before you boost (Constant)
     constexpr float kLabReactSecWait  = 0.2f;      // s, the same when the ball waited with its arrow first (Respawn)
@@ -93,6 +97,11 @@ namespace airlabs
     {
         Vector half = V(59.f, 42.1f, 18.1f);
         Vector offset = V(13.88f, 0.f, 20.75f);
+        // The wheels (centres in the car's axes, and radii), read from your car when it can be;
+        // the default is the Octane's (RocketSim: suspension at rest in the air).
+        int wheels = 4;
+        Vector wheel[4] = { V(51.25f, 25.9f, -5.5f), V(51.25f, -25.9f, -5.5f), V(-33.75f, 29.5f, -1.3f), V(-33.75f, -29.5f, -1.3f) };
+        float wheelR[4] = { 12.5f, 12.5f, 15.f, 15.f };
     };
 
     struct LabState
@@ -116,6 +125,7 @@ namespace airlabs
         bool flipReady = true;               // Real flips: you have a flip (or double jump) to use
         int resets = 0, flipsUsed = 0;
         bool resetNow = false;               // a flip reset this tick
+        int wheelsTouching = 0;              // wheels touching the ball (3 or more: a flip reset, as in Rocket League)
     };
 
     inline Vector LabRelVel(const LabState& s) { return Sub(s.ballVel, s.carVel); }
@@ -469,20 +479,73 @@ namespace airlabs
                 s.free = false;
                 if (s.phase == kLabHang) s.phase = kLabFlying;
                 if (p.motion == kLabRespawn) { s.phase = kLabTouched; s.phaseEnd = now + kLabTouchedSec; } // keep touching it to keep it
-                // A flip reset: the ball on the underside, where the wheels are (all four touching).
-                const Vector rel0 = Sub(cp, Add(Add(Scale(car.forward, hb.offset.X), Scale(car.right, hb.offset.Y)), Scale(car.up, hb.offset.Z)));
-                const float lx = Dot(rel0, car.forward), ly = Dot(rel0, car.right), lz = Dot(rel0, car.up);
-                if (lz <= -hb.half.Z + 0.5f && std::fabs(lx) <= hb.half.X * 0.8f && std::fabs(ly) <= hb.half.Y * 0.9f)
+            }
+        }
+        // ---- the wheels: a soft touch (the suspension gives, with no extra push). Three or more
+        // wheels on the ball give your flip back: a flip reset, as Rocket League decides it ----
+        auto wheelAt = [&](int i) {
+            const Vector& w = hb.wheel[i];
+            return Add(Add(Scale(car.forward, w.X), Scale(car.right, w.Y)), Scale(car.up, w.Z));
+        };
+        if (!hit)
+        {
+            int deepest = -1;
+            float deepestGap = 0.f;
+            for (int i = 0; i < hb.wheels; ++i)
+            {
+                const float gap = Len(Sub(next, wheelAt(i))) - (kLabBallRadius + hb.wheelR[i]);
+                if (gap <= 0.f && (deepest < 0 || gap < deepestGap)) { deepest = i; deepestGap = gap; }
+            }
+            if (deepest >= 0)
+            {
+                const Vector wc = wheelAt(deepest);
+                const Vector n = Norm(Sub(s.ballPos, wc));
+                const Vector local = hb.wheel[deepest];
+                const Vector before = Add(Add(Scale(prevCar.forward, local.X), Scale(prevCar.right, local.Y)), Scale(prevCar.up, local.Z));
+                const Vector spin = Scale(Sub(wc, before), 1.f / dt);
+                const float closing = Dot(Sub(Add(s.carVel, spin), s.ballVel), n);
+                if (closing > 0.f)
                 {
-                    ++s.resets;
-                    s.resetNow = true;
-                    s.flipReady = true;
+                    const float j = closing / (1.f / kLabCarMass + 1.f / kLabBallMass);
+                    s.ballVel = Add(s.ballVel, Scale(n, j / kLabBallMass));
+                    s.carVel = Sub(s.carVel, Scale(n, j / kLabCarMass));
+                    hit = true;
+                    if (now - s.lastTouch >= kLabTouchGap)
+                    {
+                        s.lastClosing = closing;
+                        s.lastBallSpeed = Len(LabRelVel(s));
+                        ++s.touches;
+                        s.touchedNow = true;
+                    }
+                    s.lastTouch = now;
+                    s.free = false;
+                    if (s.phase == kLabHang) s.phase = kLabFlying;
+                    if (p.motion == kLabRespawn) { s.phase = kLabTouched; s.phaseEnd = now + kLabTouchedSec; }
                 }
             }
         }
         if (!hit) s.ballPos = next;
+        {
+            int touching = 0;
+            for (int i = 0; i < hb.wheels; ++i)
+                if (Len(Sub(s.ballPos, wheelAt(i))) <= kLabBallRadius + hb.wheelR[i] + kLabSuspensionReach) ++touching;
+            if (touching >= 3 && s.wheelsTouching < 3)
+            {
+                ++s.resets;
+                s.resetNow = true;
+                s.flipReady = true;
+            }
+            s.wheelsTouching = touching;
+        }
         // Never inside the car (turning the car into the ball, or a touch that can't count
-        // yet): push it out to the surface, so the game's own car never hits it.
+        // yet): push it out to the surface, so the game's own car never hits it. Against a
+        // wheel it may rest just touching (1 uu in), so the game's own wheels feel the ball.
+        for (int i = 0; i < hb.wheels; ++i)
+        {
+            const Vector wc = wheelAt(i);
+            const float d = Len(Sub(s.ballPos, wc)), want = kLabBallRadius + hb.wheelR[i] - 1.f;
+            if (d < want) s.ballPos = Add(wc, Scale(d > 0.5f ? Scale(Sub(s.ballPos, wc), 1.f / d) : V(0.f, 0.f, -1.f), want));
+        }
         for (int i = 0; i < 3; ++i)
         {
             const Vector cp = LabClosestOnBox(s.ballPos, car, hb);
