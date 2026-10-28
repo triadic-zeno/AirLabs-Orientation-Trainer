@@ -440,9 +440,21 @@ in `tools/boostlab_test.cpp`.
 - **Floor and steepness:** the ball never goes more than the floor distance below your car (300 uu
   by default; it bounces off it), and launches and bounces travel no steeper than 45 degrees from
   level by default (curving balls then curve left and right only).
-- **Air drag:** the ball loses about 3% of its speed a second, as in Rocket League; your car has no
-  drag. So a ball you've pushed just past your 2300 top speed comes back within reach, and the HUD
-  says when it's faster than you.
+- **Speed limit (off by default):** with it on, the car tops out at 2300, the ball at 6000, and the
+  ball has Rocket League's air drag (about 3% of its speed a second), so a ball pushed just past your
+  top speed comes back within reach (the HUD says when it's faster than you). All three are measured
+  against a field; open space has none, so with it off only how you move relative to the ball counts
+  and an air dribble can go on for ever (gravity cancels between car and ball, as it does in a real one).
+- **Flips** (Off / Real / Infinite; Real by default): jump with the stick flips, jump without it is a
+  double jump. Real gives one for each new ball and each bounce, plus one for every **flip reset**
+  (the ball touching the underside of your car, where the wheels are; "FLIP RESET" shows). The game
+  does the flip itself when it will (the plugin tells it the car has jumped and still has its flip,
+  and adds the game's push to your momentum), so flip cancels and stalls feel like the real thing.
+  If the game doesn't respond to a press, the lab does the flip itself from then on: Rocket League's
+  push (RocketSim's numbers: 500 uu/s, flattened to level, up to 1.9x sideways and 2.5 x 16/15
+  backwards at top speed; a double jump is 291.7 along the roof) and a 0.65 s turn at 5.5 rad/s.
+- **A Respawn ball you keep touching stays:** a new one comes 1.5 s after your last touch (or when it
+  reaches the edge), so you can dribble it.
 - **Never straight at you.** Launches and bounces pick a direction whose path (as you see it) passes
   at least the pass distance (250 uu) from your car's centre and crosses at least a bubble radius
   of the bubble. From the edge that's 18-60 degrees off straight in.
@@ -457,8 +469,8 @@ in `tools/boostlab_test.cpp`.
   into a still ball: at 200 uu/s it leaves at 301 (130 away from your car); at 1500, at 2177.
   Your car gets the recoil.
 - **On screen:** green markers show where you're heading relative to the ball (on the ball = you'll
-  hit it) and the opposite way (boost there to slow down). The ball has a ring (yellow and pulsing
-  while it waits), or an arrow at the screen's edge when it's off screen. Optional: a **navball**
+  hit it) and the opposite way (boost there to slow down). A waiting ball has a ring (yellow and
+  pulsing; a flying ball has none), and there's an arrow at the screen's edge when it's off screen. Optional: a **navball**
   (every direction on one disc: the middle is your nose, the rim behind you; with the horizon, the
   ball, the markers and your own drift as a blue dot), and **dust** that streaks past as you move.
 - Boost reaches the game, so you see and hear it (it never runs out); jump is blocked.
@@ -512,6 +524,8 @@ PC clock if it ever looks wrong; the Readout shows which is in use.
 | `airlabs_lab` | Start or stop the Boost Lab (test) |
 | `airlabs_lab_motion 0` / `1` | Boost Lab: Respawn / Constant |
 | `airlabs_lab_bubble`, `_pass`, `_speed`, `_dynamic`, `_speed_min`, `_speed_max`, `_curve`, `_cone`, `_height_min`, `_height_max`, `_steep`, `_floor`, `_run`, `_hang` | Boost Lab settings (see "Boost Lab") |
+| `airlabs_lab_flips 0` / `1` / `2` | Boost Lab flips: off / real (default) / infinite |
+| `airlabs_lab_speed_limit 1` / `0` | Boost Lab speed limit and ball drag on / off (default) |
 | `airlabs_lab_markers`, `airlabs_lab_navball`, `airlabs_lab_dust` (1 / 0) | Boost Lab: relative markers (on), navball (off), dust (off) |
 | `airlabs_lab_botprobe` | Test: spawn a bot car and hold it next to you for 20 s |
 | `airlabs_watch <run>` | Watch a leaderboard run's replay (the number is the run's id on the server) |

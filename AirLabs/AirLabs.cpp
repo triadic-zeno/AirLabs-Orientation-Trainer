@@ -486,7 +486,7 @@ void AirLabs::RegisterCvars()
     labMotion = mkI(kLabRespawn); labBubble = mkF(800.f); labPass = mkF(250.f); labSpeed = mkF(800.f); labHang = mkF(0.75f);
     labSpeedMin = mkF(400.f); labSpeedMax = mkF(1400.f); labCurve = mkF(0.f); labRun = mkF(0.f); labCone = mkF(180.f);
     labHeightMin = mkF(-90.f); labHeightMax = mkF(90.f); labSteep = mkF(45.f); labFloor = mkF(300.f);
-    labDynamic = mkB(false); labDust = mkB(false); labMarkers = mkB(true); labNavball = mkB(false);
+    labDynamic = mkB(false); labDust = mkB(false); labMarkers = mkB(true); labNavball = mkB(false); labSpeedLimit = mkB(false); labFlips = mkI(kLabFlipsReal);
 
     reg("airlabs_mode", "1", "0 = Flick, 1 = Track (default), 2 = Hybrid, 3 = Chase", 0.f, static_cast<float>(kModeCount - 1)).bindTo(mode);
     reg("airlabs_preset_flick", "4", "Flick preset (last = Custom)", 0.f, maxIdx(kFlick)).bindTo(presetFlick);
@@ -557,6 +557,8 @@ void AirLabs::RegisterCvars()
     reg("airlabs_lab_height_max", "90", "Boost Lab: highest a new ball appears (deg above the horizon)", -90.f, 90.f).bindTo(labHeightMax);
     reg("airlabs_lab_steep", "45", "Boost Lab: the steepest a launched or bounced ball travels, up or down from level (deg)", 0.f, 90.f).bindTo(labSteep);
     reg("airlabs_lab_floor", "300", "Boost Lab: how far below your car the ball can go; it bounces off this floor (uu, 2000 = no floor)", 100.f, 2000.f).bindTo(labFloor);
+    reg("airlabs_lab_speed_limit", "0", "Boost Lab: the 2300 speed cap and the ball's air drag, as on a field (off: open space, only how you move relative to the ball counts)", 0.f, 1.f).bindTo(labSpeedLimit);
+    reg("airlabs_lab_flips", "1", "Boost Lab flips: 0 = off, 1 = real (one for each new ball, one for each flip reset), 2 = infinite", 0.f, 2.f).bindTo(labFlips);
     reg("airlabs_lab_dust", "0", "Boost Lab: specks of dust that streak past as you move", 0.f, 1.f).bindTo(labDust);
     reg("airlabs_lab_markers", "1", "Boost Lab: markers for how you're moving relative to the ball (on it = you'll hit it)", 0.f, 1.f).bindTo(labMarkers);
     reg("airlabs_lab_navball", "0", "Boost Lab: navball (your orientation, the ball and the markers, all the way round)", 0.f, 1.f).bindTo(labNavball);
@@ -1605,6 +1607,8 @@ LabParams AirLabs::LabParamsNow() const
     p.runSec = std::clamp(*labRun, 0.f, 600.f);
     p.steep = std::clamp(*labSteep, 0.f, 90.f);
     p.floor = *labFloor >= 1999.f ? 5000.f : std::clamp(*labFloor, 100.f, 2000.f);
+    p.speedLimit = *labSpeedLimit;
+    p.flips = std::clamp(*labFlips, 0, 2);
     return p;
 }
 
@@ -1647,8 +1651,9 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
     // ---- input: boost and throttle move you; boost still reaches the game, so you see and
     // hear it (the car is pinned, so it can't actually move). Jump is blocked: a dodge would
     // flip the car, and dodges aren't part of the lab yet.
-    bool boost = false;
+    bool boost = false, jumpPress = false;
     float throttle = 0.f;
+    const bool canFlip = p.flips == kLabFlipsInfinite || (p.flips == kLabFlipsReal && lab.flipReady && lab.phase != kLabDone);
     if (params)
     {
         auto* input = reinterpret_cast<ControllerInput*>(params);
@@ -1658,9 +1663,21 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
         inRoll = input->Roll;
         boost = input->HoldingBoost || input->ActivateBoost;
         throttle = input->Throttle;
-        input->Jump = 0;
+        const bool jump = input->Jump != 0;
+        jumpPress = jump && !labJumpHeld;
+        labJumpHeld = jump;
+        // The game only sees jump when you have a flip to use, and it hasn't already shown it
+        // won't flip a car held in the air (then the lab does the flip itself).
+        if (!canFlip || labFlipNative == 0) input->Jump = 0;
     }
     labBoosting = boost;
+    if (canFlip && labFlipNative != 0)
+    {
+        // Tell the game the car has jumped and still has its flip, with no time limit on it.
+        car.SetbJumped(1);
+        car.SetbDoubleJumped(0);
+        car.SetMaxTimeForDodge(100000.f);
+    }
 
     pinLocation = V(0.f, 0.f, kArenaCentreZ);
     if (labNeedsStart)
@@ -1688,6 +1705,54 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
         for (int i = 0; i < kDustCount; ++i) labSpecks.push_back(V(u(rng), u(rng), u(rng)));
         labTouchFlash = labMissFlash = -10.0;
     }
+    // The game's push from a flip or double jump it did since the last tick (the car is pinned
+    // with no speed each tick, so anything bigger than a tick of boost and gravity is that push).
+    {
+        const Vector gv = car.GetVelocity();
+        if (Len(gv) > 150.f)
+        {
+            lab.carVel = Add(lab.carVel, gv);
+            if (p.speedLimit) CapSpeed(lab.carVel, kCarTopSpeed);
+            if (labFlipNative != 1) cvarManager->log("[AirLabs] Boost Lab: the game does the flips (push " + Fmt("%.0f uu/s)", Len(gv)));
+            labFlipNative = 1;
+            labFlipAwait = 0;
+            labFlipFlash = gameTime;
+        }
+    }
+    {
+        const Rotator r0 = car.GetRotation();
+        const Basis b0 = BasisFromRotator(r0.Pitch, r0.Yaw, r0.Roll);
+        if (jumpPress && canFlip)
+        {
+            labFlipStick = V(inPitch, inYaw, inRoll);
+            if (p.flips == kLabFlipsReal) lab.flipReady = false;
+            ++lab.flipsUsed;
+            if (labFlipNative == 0) LabDoFlip(car, b0);
+            else
+            {
+                labFlipAwait = 4; // the game's push shows up within a few ticks if it flipped
+                if (labFlipNative < 0)
+                    cvarManager->log(std::string("[AirLabs] Boost Lab: first flip press (game says HasFlip ") + (car.HasFlip() ? "yes" : "no") + ")");
+            }
+        }
+        else if (labFlipAwait > 0 && --labFlipAwait == 0)
+        {
+            cvarManager->log("[AirLabs] Boost Lab: the game didn't flip the car in the air, so the lab does the flips itself.");
+            labFlipNative = 0;
+            LabDoFlip(car, b0);
+        }
+        // The lab's own flip: turn the car about the flip's axis at Rocket League's top spin.
+        if (gameTime < labSimFlipUntil)
+        {
+            const Vector axis = Norm(Sub(Scale(b0.right, labSimFlipX), Scale(b0.forward, labSimFlipY)));
+            const float a = kMaxSpin * dt;
+            Basis nb{ RotateAbout(b0.forward, axis, a), RotateAbout(b0.right, axis, a), RotateAbout(b0.up, axis, a) };
+            int rp, ry, rr;
+            RotatorFromBasis(nb, rp, ry, rr);
+            car.SetRotation(Rotator(rp, ry, rr));
+            car.SetAngularVelocity(V(0.f, 0.f, 0.f), false);
+        }
+    }
     car.SetLocation(pinLocation);
     car.SetVelocity(V(0.f, 0.f, 0.f));
     BoostWrapper bw = car.GetBoostComponent();
@@ -1707,6 +1772,7 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
     LabStep(lab, rng, p, b, labPrevBasis, labHitbox, boost, throttle, gameTime, dt);
     labPrevBasis = b;
     if (lab.touchedNow) labTouchFlash = gameTime;
+    if (lab.resetNow) labResetFlash = gameTime;
     if (lab.missedNow) labMissFlash = gameTime;
 
     // The specks drift opposite to your movement; one that leaves the cube comes back in on
@@ -1736,6 +1802,17 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
         ball.SetVelocity(V(0.f, 0.f, 0.f));
         ball.SetAngularVelocity(V(0.f, 0.f, 0.f), false);
     }
+}
+
+void AirLabs::LabDoFlip(CarWrapper car, const Basis& b)
+{
+    const Vector dir = LabFlipImpulse(lab.carVel, b, labFlipStick.X, labFlipStick.Y, labFlipStick.Z, LabParamsNow().speedLimit);
+    labFlipFlash = gameTime;
+    if (std::fabs(dir.X) + std::fabs(dir.Y) < 0.01f) return; // a double jump: just the push
+    labSimFlipX = dir.X;
+    labSimFlipY = dir.Y;
+    labSimFlipUntil = gameTime + kLabFlipTime;
+    (void)car;
 }
 
 namespace
@@ -1836,11 +1913,14 @@ void AirLabs::DrawLab(CanvasWrapper& canvas, const Vector2& screen)
         if (lab.phase == kLabDone) {}
         else if (onScreen(ballW, bc))
         {
-            Vector2F e = canvas.ProjectF(Add(ballW, Scale(cb.right, kLabBallRadius + 12.f)));
-            float r = std::clamp(std::sqrt((e.X - bc.X) * (e.X - bc.X) + (e.Y - bc.Y) * (e.Y - bc.Y)), 8.f, 500.f);
-            if (lab.phase == kLabHang) r *= 1.f + 0.12f * static_cast<float>(std::sin(gameTime * 12.0)); // pulses while it waits
-            canvas.SetColor(ringCol);
-            Ring(canvas, bc, r, 2.5f);
+            if (lab.phase == kLabHang) // only a waiting ball gets a ring (yellow, pulsing); a flying ball has none
+            {
+                Vector2F e = canvas.ProjectF(Add(ballW, Scale(cb.right, kLabBallRadius + 12.f)));
+                float r = std::clamp(std::sqrt((e.X - bc.X) * (e.X - bc.X) + (e.Y - bc.Y) * (e.Y - bc.Y)), 8.f, 500.f);
+                r *= 1.f + 0.12f * static_cast<float>(std::sin(gameTime * 12.0));
+                canvas.SetColor(ringCol);
+                Ring(canvas, bc, r, 2.5f);
+            }
         }
         else
         {
@@ -1900,7 +1980,10 @@ void AirLabs::DrawLab(CanvasWrapper& canvas, const Vector2& screen)
         if (lab.runEnd < 1e17) add(Fmt("Time left  %.0f s", std::max(0.0, std::min(static_cast<double>(p.runSec), lab.runEnd - gameTime))));
         if (lab.touches > 0) add(Fmt("Last touch: met it at %.0f uu/s", lab.lastClosing) + Fmt(", it left you at %.0f", lab.lastBallSpeed), kColDim, 1.15f);
         // Boosting at a ball that's faster than a car can go: say so, so it doesn't look broken.
-        if (labBoosting && speed > kCarTopSpeed - 10.f && closing < 0.f && Dot(Scale(lab.carVel, 1.f / speed), toBall) > 0.9f)
+        if (p.flips == kLabFlipsInfinite) add("Flips: infinite", kColDim, 1.15f);
+        else if (p.flips == kLabFlipsReal)
+            add(lab.flipReady ? "Flip: ready" : "Flip: used  (wheels on the ball for a flip reset)", lab.flipReady ? kColGood : kColDim, 1.15f);
+        if (p.speedLimit && labBoosting && speed > kCarTopSpeed - 10.f && closing < 0.f && Dot(Scale(lab.carVel, 1.f / speed), toBall) > 0.9f)
             add(Fmt("The ball's faster than your top speed (2300): it's at %.0f", Len(lab.ballVel)) + " and slowing", kColWarn, 1.15f);
         add("Hold boost to fly. Let go and you keep drifting.", kColDim, 1.05f);
     }
@@ -1916,6 +1999,7 @@ void AirLabs::DrawLab(CanvasWrapper& canvas, const Vector2& screen)
         canvas.SetPosition(Vector2F{ (screen.X - sz.X) * 0.5f, static_cast<float>(yy) });
         canvas.DrawString(t, scale, scale, true);
     };
+    if (gameTime - labResetFlash < 0.8) centred("FLIP RESET", kColTitle, 2.2f, static_cast<int>(screen.Y * 0.28f));
     if (gameTime - labTouchFlash < 0.5) centred(Fmt("TOUCH  %.0f uu/s", lab.lastClosing), kColGood, 2.2f, static_cast<int>(screen.Y * 0.22f));
     else if (gameTime - labMissFlash < 0.7) centred("GOT AWAY", kColBad, 2.2f, static_cast<int>(screen.Y * 0.22f));
 }

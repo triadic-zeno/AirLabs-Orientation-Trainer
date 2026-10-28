@@ -19,7 +19,14 @@
 // can actually reach from where you are (slower than the set speed if it has to), never travel steeper than `steep` degrees
 // from level, and never take it below the floor (`floor` uu under you), which it also bounces off.
 //
-// The ball has Rocket League's air drag (about 3% of its speed a second); cars have none.
+// Speed limit (an option): the car's 2300 cap, the ball's 6000 and the ball's air drag (about 3% of
+// its speed a second). All three are measured against a field; in open space there isn't one, so
+// with the limit off only how you move relative to the ball counts (an air dribble can go on for
+// ever, as gravity cancels between car and ball). Cars have no drag.
+//
+// Flips: the game does the flip itself when it can (the plugin adds its push to your momentum);
+// LabFlipImpulse is Rocket League's flip push for when it can't. Real flips: one for each new ball
+// (and each bounce), and one for each flip reset (the ball on your wheels).
 //
 // Touches use Rocket League's ball-car hit as the community has measured it (RLUtilities):
 // a collision impulse from how fast the car's contact point (including its spin) moves into
@@ -42,7 +49,14 @@ namespace airlabs
     constexpr float kLabBallDrag      = 0.0305f;   // 1/s, the ball's air drag: it loses about 3% of its speed each second
     constexpr float kLabTouchGap      = 0.05f;     // s, a second touch can't count sooner than this
     constexpr float kLabBounceGap     = 0.25f;     // s, Constant: the ball can't bounce again sooner than this
-    constexpr float kLabTouchedSec    = 0.6f;      // s, Respawn: a touched ball flies off this long, then a new one appears
+    constexpr float kLabTouchedSec    = 1.5f;      // s, Respawn: a new ball appears this long after your last touch (or when it reaches the edge)
+    // Flips (RocketSim's constants, which match Rocket League's)
+    constexpr float kLabJumpImpulse   = 291.667f;  // uu/s along the car's roof: a double jump
+    constexpr float kLabFlipImpulse   = 500.f;     // uu/s: a flip's push
+    constexpr float kLabFlipSideScale = 1.9f;      // the sideways push grows with your forward speed, up to this at top speed
+    constexpr float kLabFlipBackScale = 2.5f;      // the backwards push, likewise
+    constexpr float kLabFlipDeadzone  = 0.5f;      // |pitch| + |yaw| + |roll| below this: a double jump instead of a flip
+    constexpr float kLabFlipTime      = 0.65f;     // s, how long a flip turns the car
     constexpr float kLabCurveAxisSec  = 1.f;       // s, a curving ball picks a new way to curve this often
     constexpr float kLabReactSec      = 0.4f;      // s, reachable check: time to react and turn before you boost (Constant)
     constexpr float kLabReactSecWait  = 0.2f;      // s, the same when the ball waited with its arrow first (Respawn)
@@ -50,6 +64,7 @@ namespace airlabs
 
     enum LabMotion { kLabRespawn = 0, kLabConstant = 1 };
     enum LabPhase  { kLabHang = 0, kLabFlying = 1, kLabTouched = 2, kLabDone = 3 };
+    enum LabFlips  { kLabFlipsOff = 0, kLabFlipsReal = 1, kLabFlipsInfinite = 2 };
 
     struct LabParams
     {
@@ -67,6 +82,9 @@ namespace airlabs
         float steep = 90.f;       // deg, the steepest a launched or bounced ball travels, up or down from level
         float floor = 5000.f;     // uu, how far below your car the ball can go (it bounces off this floor)
         float runSec = 0.f;       // s, run length (0 = endless)
+        bool speedLimit = true;   // the car's 2300 cap, the ball's 6000 cap and its air drag (all measured against a field;
+                                  // off: open space, where only how you move relative to the ball counts)
+        int flips = kLabFlipsReal; // Real: one flip for each new ball, and one for each flip reset (wheels on the ball)
     };
 
     // The car's hitbox in its own axes (X forward, Y right, Z up): half sizes and the offset of
@@ -95,6 +113,9 @@ namespace airlabs
         float lastClosing = 0.f;             // uu/s, how fast your car met the ball at the last touch
         float lastBallSpeed = 0.f;           // uu/s, how fast the ball left you (relative to your car)
         bool touchedNow = false, missedNow = false; // set for the tick it happened
+        bool flipReady = true;               // Real flips: you have a flip (or double jump) to use
+        int resets = 0, flipsUsed = 0;
+        bool resetNow = false;               // a flip reset this tick
     };
 
     inline Vector LabRelVel(const LabState& s) { return Sub(s.ballVel, s.carVel); }
@@ -166,9 +187,10 @@ namespace airlabs
     }
 
     // How far a car starting from rest gets in t seconds, boosting flat out (capped at 2300).
-    inline float LabBoostDistance(float t)
+    inline float LabBoostDistance(float t, bool speedLimit = true)
     {
         if (t <= 0.f) return 0.f;
+        if (!speedLimit) return 0.5f * kBoostAccel * t * t;
         const float tCap = kCarTopSpeed / kBoostAccel;
         if (t <= tCap) return 0.5f * kBoostAccel * t * t;
         return 0.5f * kBoostAccel * tCap * tCap + kCarTopSpeed * (t - tCap);
@@ -182,7 +204,7 @@ namespace airlabs
         float tMax = 4.f;
         if (sp > 1.f) tMax = std::min(tMax, LabRunDistance(p, Scale(w, 1.f / sp), prm.bubble, prm.floor) / sp);
         for (float t = 0.f; t <= tMax + 1e-4f; t += 0.02f)
-            if (Len(Add(p, Scale(w, t))) - kLabReachMargin <= LabBoostDistance(t - react)) return true;
+            if (Len(Add(p, Scale(w, t))) - kLabReachMargin <= LabBoostDistance(t - react, prm.speedLimit)) return true;
         return false;
     }
 
@@ -265,7 +287,8 @@ namespace airlabs
     // Rocket League's ball-car hit. The ball is at ballPos (relative to the car's origin) and
     // touches the box at contact; carSpin is how fast that point of the car moves because the
     // car is turning. Changes both velocities; returns how fast the car met the ball (<= 0: no hit).
-    inline float LabHit(Vector& ballVel, Vector& carVel, const Vector& ballPos, const Vector& contact, const Vector& carSpin, const Basis& car)
+    inline float LabHit(Vector& ballVel, Vector& carVel, const Vector& ballPos, const Vector& contact, const Vector& carSpin, const Basis& car,
+                        bool speedLimit = true)
     {
         const Vector n1 = Norm(Sub(ballPos, contact));               // out of the car, into the ball
         const Vector dV = Sub(Add(carVel, carSpin), ballVel);        // car's contact point relative to the ball
@@ -287,9 +310,54 @@ namespace airlabs
         const Vector J2 = Scale(n2, kLabBallMass * dv * LabPushScale(dv));
         ballVel = Add(ballVel, Scale(Add(J1, J2), 1.f / kLabBallMass));
         carVel = Sub(carVel, Scale(J1, 1.f / kLabCarMass));
-        CapSpeed(ballVel, kLabBallTopSpeed);
-        CapSpeed(carVel, kCarTopSpeed);
+        if (speedLimit)
+        {
+            CapSpeed(ballVel, kLabBallTopSpeed);
+            CapSpeed(carVel, kCarTopSpeed);
+        }
         return closing;
+    }
+
+    // A flip or double jump as Rocket League does it (RocketSim), for when the game itself
+    // doesn't: the stick decides. Little stick: a double jump (a push along the roof). Otherwise
+    // a flip, pushing the way the stick points (forward/back along the nose, sideways along the
+    // right), flattened to level like the game's, and stronger sideways and backwards the faster
+    // you're going forwards. Returns the flip direction (x forward, y right), or 0,0 for a jump.
+    inline Vector LabFlipImpulse(Vector& carVel, const Basis& car, float pitch, float yaw, float roll, bool speedLimit)
+    {
+        if (std::fabs(pitch) + std::fabs(yaw) + std::fabs(roll) < kLabFlipDeadzone)
+        {
+            carVel = Add(carVel, Scale(car.up, kLabJumpImpulse));
+            if (speedLimit) CapSpeed(carVel, kCarTopSpeed);
+            return V(0.f, 0.f, 0.f);
+        }
+        float dx = -pitch, dy = yaw + roll; // stick forward (pitch -1) = flip forward
+        const float l = std::sqrt(dx * dx + dy * dy);
+        dx /= l; dy /= l;
+        if (std::fabs(dx) < 0.1f) dx = 0.f;
+        if (std::fabs(dy) < 0.1f) dy = 0.f;
+        const float forwardSpeed = Dot(carVel, car.forward);
+        const float ratio = std::min(1.f, std::fabs(forwardSpeed) / kCarTopSpeed);
+        const bool backwards = dx < 0.f;
+        float ix = dx * kLabFlipImpulse * (((backwards ? kLabFlipBackScale : 1.f) - 1.f) * ratio + 1.f);
+        float iy = dy * kLabFlipImpulse * ((kLabFlipSideScale - 1.f) * ratio + 1.f);
+        if (backwards) ix *= 16.f / 15.f;
+        Vector f2 = V(car.forward.X, car.forward.Y, 0.f);
+        if (Len(f2) < 0.2f) f2 = V(-car.up.X, -car.up.Y, 0.f) ; // nose straight up or down: use where the roof faces
+        f2 = Norm(f2);
+        const Vector r2 = V(-f2.Y, f2.X, 0.f);
+        carVel = Add(carVel, Add(Scale(f2, ix), Scale(r2, iy)));
+        if (speedLimit) CapSpeed(carVel, kCarTopSpeed);
+        return V(dx, dy, 0.f);
+    }
+
+    // The car's axes back to an Unreal rotator (the reverse of BasisFromRotator).
+    inline void RotatorFromBasis(const Basis& b, int& pitchU, int& yawU, int& rollU)
+    {
+        const float k = 32768.f / kPi;
+        pitchU = static_cast<int>(std::lround(std::asin(std::clamp(b.forward.Z, -1.f, 1.f)) * k));
+        yawU = static_cast<int>(std::lround(std::atan2(b.forward.Y, b.forward.X) * k));
+        rollU = static_cast<int>(std::lround(std::atan2(-b.right.Z, b.up.Z) * k));
     }
 
     // A new ball: your momentum is reset (each ball starts clean), and the ball waits, with
@@ -305,6 +373,7 @@ namespace airlabs
         s.free = false;
         s.phase = kLabHang;
         s.phaseEnd = now + p.hangSec;
+        s.flipReady = true; // a flip for each new ball
         ++s.balls;
     }
 
@@ -322,7 +391,7 @@ namespace airlabs
     inline void LabStep(LabState& s, std::mt19937& rng, const LabParams& p, const Basis& car, const Basis& prevCar,
                         const LabHitbox& hb, bool boost, float throttle, double now, float dt)
     {
-        s.touchedNow = s.missedNow = false;
+        s.touchedNow = s.missedNow = s.resetNow = false;
         if (dt <= 0.f || s.phase == kLabDone) return;
         if (now >= s.runEnd)
         {
@@ -334,7 +403,7 @@ namespace airlabs
         // ---- your car: boost (or air throttle) along the nose, capped at 2300 ----
         if (boost) s.carVel = Add(s.carVel, Scale(car.forward, kBoostAccel * dt));
         else if (std::fabs(throttle) > 0.01f) s.carVel = Add(s.carVel, Scale(car.forward, kAirThrottleAccel * std::clamp(throttle, -1.f, 1.f) * dt));
-        CapSpeed(s.carVel, kCarTopSpeed);
+        if (p.speedLimit) CapSpeed(s.carVel, kCarTopSpeed);
 
         // ---- a waiting ball launches, the way its arrow showed ----
         if (s.phase == kLabHang && now >= s.phaseEnd)
@@ -347,7 +416,7 @@ namespace airlabs
 
         // ---- air drag: the ball slowly loses speed (so a ball pushed just past your top speed
         // doesn't stay out of reach for ever, as in a match) ----
-        if (s.phase != kLabHang) s.ballVel = Scale(s.ballVel, std::max(0.f, 1.f - kLabBallDrag * dt));
+        if (s.phase != kLabHang && p.speedLimit) s.ballVel = Scale(s.ballVel, std::max(0.f, 1.f - kLabBallDrag * dt));
 
         // ---- a free ball curves: its direction turns steadily about an axis that changes every second ----
         if (s.free && p.curve > 0.f && s.phase == kLabFlying)
@@ -380,7 +449,7 @@ namespace airlabs
         const Vector next = Add(s.ballPos, Scale(rel, dt));
         const bool contact = LabBoxDistance(next, car, hb) <= kLabBallRadius + 2.f;
         bool hit = false;
-        if (contact && now - s.lastTouch >= kLabTouchGap && s.phase != kLabTouched)
+        if (contact && now - s.lastTouch >= kLabTouchGap)
         {
             const Vector cp = LabClosestOnBox(s.ballPos, car, hb);
             // How fast that point of the car is moving because the car is turning: where it
@@ -388,7 +457,7 @@ namespace airlabs
             const Vector local = V(Dot(cp, car.forward), Dot(cp, car.right), Dot(cp, car.up));
             const Vector before = Add(Add(Scale(prevCar.forward, local.X), Scale(prevCar.right, local.Y)), Scale(prevCar.up, local.Z));
             const Vector spin = Scale(Sub(cp, before), 1.f / dt);
-            const float closing = LabHit(s.ballVel, s.carVel, s.ballPos, cp, spin, car);
+            const float closing = LabHit(s.ballVel, s.carVel, s.ballPos, cp, spin, car, p.speedLimit);
             if (closing > 0.f)
             {
                 hit = true;
@@ -399,7 +468,16 @@ namespace airlabs
                 s.touchedNow = true;
                 s.free = false;
                 if (s.phase == kLabHang) s.phase = kLabFlying;
-                if (p.motion == kLabRespawn) { s.phase = kLabTouched; s.phaseEnd = now + kLabTouchedSec; }
+                if (p.motion == kLabRespawn) { s.phase = kLabTouched; s.phaseEnd = now + kLabTouchedSec; } // keep touching it to keep it
+                // A flip reset: the ball on the underside, where the wheels are (all four touching).
+                const Vector rel0 = Sub(cp, Add(Add(Scale(car.forward, hb.offset.X), Scale(car.right, hb.offset.Y)), Scale(car.up, hb.offset.Z)));
+                const float lx = Dot(rel0, car.forward), ly = Dot(rel0, car.right), lz = Dot(rel0, car.up);
+                if (lz <= -hb.half.Z + 0.5f && std::fabs(lx) <= hb.half.X * 0.8f && std::fabs(ly) <= hb.half.Y * 0.9f)
+                {
+                    ++s.resets;
+                    s.resetNow = true;
+                    s.flipReady = true;
+                }
             }
         }
         if (!hit) s.ballPos = next;
@@ -442,6 +520,7 @@ namespace airlabs
                 if (s.ballPos.Z < -p.floor) s.ballPos.Z = -p.floor;
                 s.carVel = V(0.f, 0.f, 0.f);
                 s.ballVel = LabPickLaunch(rng, s.ballPos, p, LabNextSpeed(rng, p), kLabReactSec);
+                s.flipReady = true;
                 if (s.phase == kLabHang) s.phase = kLabFlying;
                 s.free = true;
                 s.curveAxisUntil = 0.0;

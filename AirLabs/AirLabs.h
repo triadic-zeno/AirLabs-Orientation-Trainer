@@ -383,7 +383,18 @@ private:
     // pinned on screen, and the ball is drawn where it is relative to you. No scores yet.
     std::shared_ptr<int> labMotion;                                   // airlabs_lab_motion: 0 = Respawn, 1 = Constant
     std::shared_ptr<float> labBubble, labPass, labSpeed, labSpeedMin, labSpeedMax, labHang, labCurve, labRun, labCone, labHeightMin, labHeightMax, labSteep, labFloor;
-    std::shared_ptr<bool> labDynamic, labDust, labMarkers, labNavball;
+    std::shared_ptr<bool> labDynamic, labDust, labMarkers, labNavball, labSpeedLimit;
+    std::shared_ptr<int> labFlips;    // airlabs_lab_flips: 0 = off, 1 = real (one per ball, one per flip reset), 2 = infinite
+    // Flips: the game does them when it will (its push is added to your momentum); if it doesn't
+    // respond to a press, the lab does the flip itself from then on.
+    bool labJumpHeld = false;
+    int labFlipAwait = 0;             // ticks left to see the game's push after a press
+    int labFlipNative = -1;           // the game flips for us: -1 not known yet, 1 yes, 0 no
+    Vector labFlipStick{ 0.f, 0.f, 0.f }; // pitch, yaw, roll at the press
+    double labSimFlipUntil = -1.0;    // the lab's own flip: turning the car until then
+    float labSimFlipX = 0.f, labSimFlipY = 0.f;
+    double labFlipFlash = -10.0, labResetFlash = -10.0;
+    void LabDoFlip(CarWrapper car, const airlabs::Basis& b); // the lab's own flip (the game didn't)
     bool labOn = false;               // the lab is running (it has its own tick path)
     bool labNeedsStart = true;        // set up the car and the first ball on the next tick
     double labStartWall = -100.0;     // when it was started (it may have to load the map first)

@@ -1612,6 +1612,32 @@ void AirLabs::WinLab()
         if (Chip("##labnoroll", noRoll ? "No air roll: ON" : "No air roll: OFF", noRoll, bold)) SetCvarI("airlabs_noroll", noRoll ? 0 : 1);
     }
 
+    // ---- flips and the speed limit ----
+    SectionLabel(small, "FLIPS AND SPEED");
+    {
+        static const char* flipNames[3] = { "Flips: Off", "Flips: Real", "Flips: Infinite" };
+        static const char* flipTips[3] = { "Jump does nothing.",
+                                           "One flip (or double jump) for each new ball and each bounce, and one more for every flip reset:\nthe ball touching your wheels. Enough for musty flicks and double flip resets.",
+                                           "Flip or double jump as often as you like." };
+        for (int i = 0; i < 3; ++i)
+        {
+            if (i) ImGui::SameLine(0, 8);
+            ImGui::PushID(20 + i);
+            if (Chip("##labflips", flipNames[i], p.flips == i, bold, 34.f)) SetCvarI("airlabs_lab_flips", i);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", flipTips[i]);
+            ImGui::PopID();
+        }
+        ImGui::SameLine(0, 18);
+        if (Chip("##labslimit", p.speedLimit ? "Speed limit: ON" : "Speed limit: OFF", p.speedLimit, bold)) SetCvarI("airlabs_lab_speed_limit", p.speedLimit ? 0 : 1);
+        FontScope f(small);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kDim));
+        ImGui::TextWrapped("Flip with jump and the stick, as in a match: the flip turns your car and pushes it (sideways and backwards flips "
+                           "push harder the faster you're going). Speed limit: a car tops out at 2300 and the ball slows in the air, but both "
+                           "are measured against the field. Open space has no field, so with it off only how you move relative to the ball "
+                           "counts, and an air dribble can go on for ever.");
+        ImGui::PopStyleColor();
+    }
+
     // ---- how the ball moves ----
     SectionLabel(small, "BALL MOTION");
     {

@@ -351,6 +351,114 @@ int main()
         CHECK(s.phase == kLabDone, "run didn't end");
     }
 
+    // ---- flips: Rocket League's pushes (RocketSim) ----
+    {
+        Basis car = Facing(V(1.f, 0.f, 0.f));
+        Vector v = V(0.f, 0.f, 0.f);
+        Vector d = LabFlipImpulse(v, car, -1.f, 0.f, 0.f, true); // stick forward, standing still: front flip
+        CHECK(d.X > 0.99f && std::fabs(v.X - 500.f) < 0.5f && std::fabs(v.Y) < 0.01f, "front flip from rest: %.1f %.1f", v.X, v.Y);
+        v = V(0.f, 0.f, 0.f);
+        d = LabFlipImpulse(v, car, 0.1f, 0.f, 0.1f, true);       // barely any stick: a double jump
+        CHECK(std::fabs(v.Z - kLabJumpImpulse) < 0.5f && std::fabs(d.X) + std::fabs(d.Y) < 0.01f, "double jump: %.1f up", v.Z);
+        v = V(2300.f, 0.f, 0.f);
+        LabFlipImpulse(v, car, 0.f, 1.f, 0.f, false);            // side flip at top speed: 1.9x sideways
+        CHECK(std::fabs(v.Y - 950.f) < 0.5f && std::fabs(v.X - 2300.f) < 0.5f, "side flip at speed: %.1f %.1f", v.X, v.Y);
+        v = V(2300.f, 0.f, 0.f);
+        LabFlipImpulse(v, car, 1.f, 0.f, 0.f, false);            // backflip at top speed: 2.5 x 16/15
+        CHECK(std::fabs(v.X - (2300.f - 500.f * 2.5f * 16.f / 15.f)) < 0.5f, "backflip at speed: %.1f", v.X);
+        // a nose-down car still flips level, like the game
+        Basis down = Facing(Norm(V(1.f, 0.f, -1.f)));
+        v = V(0.f, 0.f, 0.f);
+        LabFlipImpulse(v, down, -1.f, 0.f, 0.f, true);
+        CHECK(std::fabs(v.Z) < 0.01f && std::fabs(v.X - 500.f) < 0.5f, "flips push level: %.1f %.1f %.1f", v.X, v.Y, v.Z);
+    }
+    // ---- the car's rotation round-trips ----
+    {
+        int bad = 0;
+        std::uniform_int_distribution<int> u(-16000, 16000), uy(-32767, 32767);
+        for (int i = 0; i < 2000; ++i)
+        {
+            int p0 = u(rng), y0 = uy(rng), r0 = uy(rng);
+            Basis b = BasisFromRotator(p0, y0, r0);
+            int p1, y1, r1;
+            RotatorFromBasis(b, p1, y1, r1);
+            Basis c = BasisFromRotator(p1, y1, r1);
+            if (AngleDeg(b.forward, c.forward) > 0.05f || AngleDeg(b.up, c.up) > 0.05f) ++bad;
+        }
+        CHECK(bad == 0, "%d rotations didn't round-trip", bad);
+    }
+    // ---- flip reset: the ball meeting your wheels gives you a flip back ----
+    {
+        LabParams p;
+        p.motion = kLabConstant;
+        LabState s;
+        LabStart(s, rng, p, V(1.f, 0.f, 0.f), 0.0);
+        s.phase = kLabFlying;
+        s.flipReady = false;
+        Basis car = Facing(V(1.f, 0.f, 0.f));
+        LabHitbox hb;
+        s.ballPos = V(hb.offset.X, 0.f, hb.offset.Z - hb.half.Z - kLabBallRadius - 6.f); // under the car
+        s.ballVel = V(0.f, 0.f, 300.f);                                                     // rising into the wheels
+        double t = 0.0;
+        for (int i = 0; i < 10 && s.touches == 0; ++i) { LabStep(s, rng, p, car, car, hb, false, 0.f, t, kDt); t += kDt; }
+        CHECK(s.touches == 1 && s.resets == 1 && s.flipReady, "flip reset: touches %d resets %d ready %d", s.touches, s.resets, (int)s.flipReady);
+        // the nose doesn't count
+        LabState n;
+        LabStart(n, rng, p, V(1.f, 0.f, 0.f), 0.0);
+        n.phase = kLabFlying;
+        n.flipReady = false;
+        n.ballPos = V(hb.offset.X + hb.half.X + kLabBallRadius + 6.f, 0.f, hb.offset.Z);
+        n.ballVel = V(-300.f, 0.f, 0.f);
+        for (int i = 0; i < 10 && n.touches == 0; ++i) { LabStep(n, rng, p, car, car, hb, false, 0.f, t, kDt); t += kDt; }
+        CHECK(n.touches == 1 && n.resets == 0 && !n.flipReady, "a nose touch gave a flip reset");
+    }
+    // ---- the speed limit: you at 2300 behind a ball doing 2350 the same way, boosting at it ----
+    for (int limit = 0; limit < 2; ++limit)
+    {
+        LabParams p;
+        p.motion = kLabConstant;
+        p.bubble = 2000.f;
+        p.speedLimit = limit == 1;
+        LabState s;
+        LabStart(s, rng, p, V(1.f, 0.f, 0.f), 0.0);
+        s.phase = kLabFlying;
+        s.free = false;
+        s.ballPos = V(500.f, 0.f, 20.f);
+        s.carVel = V(2300.f, 0.f, 0.f);
+        s.ballVel = V(2350.f, 0.f, 0.f);
+        Basis car = Facing(V(1.f, 0.f, 0.f));
+        double t = 0.0, reached = -1.0;
+        for (int i = 0; i < 120 * 3 && reached < 0.0; ++i)
+        {
+            LabStep(s, rng, p, car, car, LabHitbox{}, true, 0.f, t, kDt);
+            t += kDt;
+            if (s.touches > 0) reached = t;
+        }
+        std::printf("you at 2300 chasing a ball at 2350, speed limit %s: %s\n", limit ? "on " : "off",
+                    reached > 0.0 ? ("caught it in " + std::to_string(reached).substr(0, 4) + " s").c_str() : "couldn't catch it in 3 s");
+        if (!limit) CHECK(reached > 0.0 && reached < 1.5, "with no speed limit you should catch it quickly");
+        else CHECK(reached < 0.0 || reached > 1.5, "with the limit you shouldn't catch it quickly");
+    }
+
+    // ---- Respawn: a ball you keep touching stays; a new one comes 1.5 s after the last touch ----
+    {
+        LabParams p;
+        LabState s;
+        LabStart(s, rng, p, V(1.f, 0.f, 0.f), 0.0);
+        s.phase = kLabTouched;
+        s.lastTouch = 0.0;
+        s.phaseEnd = kLabTouchedSec;
+        s.ballPos = V(400.f, 0.f, 0.f);
+        s.ballVel = V(0.f, 0.f, 0.f);
+        int balls = s.balls;
+        Basis car = Facing(V(0.f, 1.f, 0.f));
+        double t = 0.0;
+        for (int i = 0; i < 170; ++i) { LabStep(s, rng, p, car, car, LabHitbox{}, false, 0.f, t, kDt); t += kDt; }
+        CHECK(s.balls == balls, "replaced before 1.5 s");
+        for (int i = 0; i < 20; ++i) { LabStep(s, rng, p, car, car, LabHitbox{}, false, 0.f, t, kDt); t += kDt; }
+        CHECK(s.balls == balls + 1, "not replaced after 1.5 s");
+    }
+
     // ---- a pilot that chases scores touches in both motions; idle, it touches nothing ----
     for (int motion = 0; motion < 2; ++motion)
     {
