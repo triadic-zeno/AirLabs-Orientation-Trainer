@@ -809,7 +809,7 @@ void AirLabs::MakeCustom()
 void AirLabs::Start()
 {
     replayOver = false;
-    labOn = false;
+    if (labOn) LabEnd(); // gives the game its ball and car back
     gameWrapper->Execute([this](GameWrapper* gw) {
         const bool inFreeplay = gw->IsInFreeplay();
         spaceCheckWall = -10.0; // look at the map now, not up to a second ago
@@ -1590,6 +1590,7 @@ Vector AirLabs::BallSpot(const Vector& dir, const DrillSettings& s) const
 namespace
 {
     constexpr float kDustBox = 1500.f; // the specks fill a cube this far out from the car each way
+    constexpr float kGameDodgeTime = 1.25f; // Rocket League's time to flip after a jump (restored when the lab stops)
     constexpr int kDustCount = 110;
 }
 
@@ -1642,6 +1643,18 @@ void AirLabs::LabBegin()
 
 void AirLabs::LabEnd()
 {
+    // Give the game its ball and car back as they were.
+    if (gameWrapper->IsInFreeplay())
+    {
+        ServerWrapper server = gameWrapper->GetGameEventAsServer();
+        if (!server.IsNull())
+        {
+            BallWrapper ball = server.GetBall();
+            if (!ball.IsNull()) { ball.SetbFrozen(0); ball.SetbCollideActors(1); }
+            CarWrapper car = server.GetGameCar();
+            if (!car.IsNull()) car.SetMaxTimeForDodge(kGameDodgeTime);
+        }
+    }
     labOn = false;
     labNeedsStart = true;
     spaceStopped = true; // on the space map the car stays held, with the ball parked in front
@@ -1724,13 +1737,11 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
     car.SetLocation(pinLocation);
     car.SetVelocity(V(0.f, 0.f, 0.f));
     lastAim = b.forward;
-    // The game's own flip state follows RocketSim's, so when the game's own wheels touch the real
-    // ball it can see the flip come back (and play its flip reset effect).
-    {
-        const RocketSim::CarState cs = labWorld.GetCarState();
-        car.SetbJumped(cs.hasJumped ? 1 : 0);
-        car.SetbDoubleJumped((cs.hasFlipped || cs.hasDoubleJumped) ? 1 : 0);
-    }
+    // The game car must never flip on its own (RocketSim does the flips): with the car pinned, a
+    // flip of the game's own fights RocketSim. So the game always thinks its flip is used up.
+    car.SetbJumped(1);
+    car.SetbDoubleJumped(1);
+    car.SetMaxTimeForDodge(0.f);
     BoostWrapper bw = car.GetBoostComponent();
     if (!bw.IsNull() && bw.GetCurrentBoostAmount() < 0.5f) bw.SetCurrentBoostAmount(1.f); // the flames never run out
 
@@ -1757,6 +1768,12 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
             float l = Len(rel), lim = ArenaLimit(pinLocation, Norm(rel));
             if (l > lim) rel = Scale(Norm(rel), lim);
         }
+        // The game's own ball is frozen (as before a kickoff: visible, its own physics stopped)
+        // and doesn't collide: RocketSim alone decides where it goes. (Touching, the car and ball
+        // overlap by a fraction of a uu for a tick or two, as in any physics engine; without this
+        // the game sees its car inside its ball and fires the ball off.)
+        ball.SetbFrozen(1);
+        ball.SetbCollideActors(0);
         ball.SetLocation(Add(pinLocation, rel));
         ball.SetVelocity(V(0.f, 0.f, 0.f));
         ball.SetAngularVelocity(V(0.f, 0.f, 0.f), false);

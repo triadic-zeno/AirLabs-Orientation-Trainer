@@ -178,7 +178,12 @@ added to `AirLabs.vcxproj` (warnings off, conformance mode off for its files) an
 - the lab's rules act through `SetState`, and `LabState` is mirrored each tick, so the HUD, markers
   and navball still work;
 - the car preset is the one closest to the game car's hitbox;
-- the game car's `bJumped` / `bDoubleJumped` follow RocketSim's;
+- the game car is always told its flip is used up (`bJumped` and `bDoubleJumped` 1,
+  `MaxTimeForDodge` 0) so it never flips on its own, and the game's ball is frozen (`SetbFrozen(1)`)
+  with `bCollideActors` 0 while the lab runs. Both are restored when the lab stops. This came from the
+  owner's first test, where "the ball goes flying" on every flip. Off-game RocketSim flips were
+  normal, so the likely cause was the game's own car and ball colliding (RocketSim lets them overlap
+  by a fraction of a uu during a touch), or the game doing its own flip;
 - a new ball or bounce gives a flip that lasts until used (`hasJumped = false`, which is RocketSim's
   flip-reset state).
 
@@ -206,7 +211,10 @@ The off-game sim ran the whole plugin with RocketSim linked in.
    - the sticks drive the car the right way (they should; the conventions match);
    - air roll, including free air roll (handbrake plus yaw becomes roll when the game doesn't
      already give roll);
-   - whether the game's own flip reset effect plays;
+   - whether flipping is fixed (the frozen, non-colliding game ball and the game never flipping on
+     its own);
+   - the game's own flip reset sound and effect can't play with the game ball not colliding. Find
+     another way to trigger it, or play a cue of our own;
    - how the hits feel.
 3. **The ball's spin isn't shown yet** (the game ball's angular velocity is set to 0). Mirroring
    RocketSim's needs the game's angular-velocity sign: learn it by comparing the ball's rotation

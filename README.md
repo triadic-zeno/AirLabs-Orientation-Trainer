@@ -458,9 +458,10 @@ pitches at 2.4 rad/s; off the front corner the ball leaves at 1802, 1076 of it s
 - **Flips** (Off / Real / Infinite; Real by default): jump with the stick flips, jump without it is a
   double jump, all by RocketSim's rules (Rocket League's). Real gives one flip with each new ball and
   each bounce (it lasts until you use it, like a flip reset), and one for every **flip reset**: three
-  or more wheels on the ball, decided by RocketSim's own wheel suspension. The game car's flip state
-  follows RocketSim's, so the game's own wheels touching the real ball can play its flip reset effect
-  (added in v2.66; to be confirmed in game). Infinite: as many flips and double jumps as you like.
+  or more wheels on the ball, decided by RocketSim's own wheel suspension. The game itself never flips the
+  car (it's always told its flip is used up), and the game's own ball is frozen with its collisions
+  off while the lab runs (as before a kickoff: visible, its own physics stopped), so only RocketSim
+  moves things. That also means the game's own flip reset sound and effect don't play yet. Infinite: as many flips and double jumps as you like.
 - **Debug line (on for now, `airlabs_lab_debug`):** jump presses, flip resets, whether you have a
   flip, the car RocketSim is using (the preset closest to your car's hitbox: Octane, Dominus, Plank,
   Breakout, Hybrid or Merc), wheels on the ball and your car's spin.
