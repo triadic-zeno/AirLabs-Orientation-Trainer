@@ -107,6 +107,132 @@ int main()
         CHECK(flip.s.touches == 0 && flip.s.bounces == 0 && flip.s.balls == 1, "no-contact flip changed the drill");
     }
 
+    // ---- Volley: shared vertical drift gives the same flip response as a slow encounter ----
+    // Isolate flips: absolute caps/ball drag deliberately remain field-relative options.
+    for (float drift : { -6000.f, 6000.f })
+    for (float pitch : { -1.f, 1.f })
+    for (Vector aim : { V(1.f, 0.f, 0.f), V(0.5f, 0.f, 0.8660254f) })
+    {
+        LabParams p;
+        p.motion = kLabConstant;
+        p.keepFlipDrift = true;
+        p.speedLimit = false;
+        p.bubble = p.floor = 50000.f;
+        LabWorld slow, fast;
+        for (LabWorld* w : { &slow, &fast }) w->Start(p, Facing(aim), kOctane, rng, 0.0);
+        slow.Place(V(0.f, 1000.f, 300.f), V(400.f, 0.f, -100.f), V(400.f, 0.f, 0.f));
+        fast.Place(V(0.f, 1000.f, 300.f), V(400.f, 0.f, drift - 100.f), V(400.f, 0.f, drift));
+        float worstRel = 0.f, worstPos = 0.f;
+        for (int i = 0; i < 84; ++i)
+        {
+            LabControls c;
+            c.jump = i == 0;
+            c.pitch = i < 20 ? pitch : -pitch; // include flip cancelling
+            slow.Step(p, c, rng, i * kTick);
+            fast.Step(p, c, rng, i * kTick);
+            worstRel = std::max(worstRel, Len(Sub(LabRelVel(fast.s), LabRelVel(slow.s))));
+            worstPos = std::max(worstPos, Len(Sub(fast.s.ballPos, slow.s.ballPos)));
+            CHECK(std::fabs((fast.s.ballVel.Z - slow.s.ballVel.Z) - drift) < 0.2f, "flip changed untouched ball drift");
+            CHECK(Len(Sub(FromRs(fast.GetCarState().angVel), FromRs(slow.GetCarState().angVel))) < 0.01f, "shared drift changed flip rotation");
+        }
+        std::printf("Volley flip: drift %+.0f pitch %+.0f nose up %.2f, relative velocity error %.3f, position error %.3f\n",
+                    drift, pitch, aim.Z, worstRel, worstPos);
+        CHECK(worstRel < 0.3f && worstPos < 0.3f, "shared drift changed the flip response");
+        CHECK(fast.s.touches == 0 && fast.s.bounces == 0, "flip equivalence test had a touch or bounce");
+        CHECK(std::fabs(fast.FlipDriftZ() - drift) < 0.1f, "flip reference should stay fixed until a reset");
+        fast.GiveFlip();
+        CHECK(fast.FlipDriftZ() == 0.f, "giving a fresh flip should clear its reference");
+    }
+
+    // ---- disabled Volley experiment must match Respawn's normal flip physics ----
+    {
+        LabParams normal;
+        normal.bubble = normal.floor = 50000.f;
+        normal.speedLimit = false;
+        LabParams volley = normal;
+        volley.motion = kLabConstant;
+        volley.keepFlipDrift = false;
+        LabWorld a, b;
+        a.Start(normal, Facing(V(1.f, 0.f, 0.f)), kOctane, rng, 0.0);
+        b.Start(volley, Facing(V(1.f, 0.f, 0.f)), kOctane, rng, 0.0);
+        for (LabWorld* w : { &a, &b }) w->Place(V(0.f, 1000.f, 300.f), V(0.f, 0.f, 1800.f), V(0.f, 0.f, 1800.f));
+        for (int i = 0; i < 84; ++i)
+        {
+            LabControls c;
+            c.jump = i == 0;
+            c.pitch = i == 0 ? 1.f : 0.f;
+            a.Step(normal, c, rng, i * kTick);
+            b.Step(volley, c, rng, i * kTick);
+            CHECK(Len(Sub(a.s.carVel, b.s.carVel)) < 0.01f && Len(Sub(a.s.ballPos, b.s.ballPos)) < 0.01f,
+                  "disabled Volley drift experiment changed normal physics");
+        }
+        CHECK(a.FlipDriftZ() == 0.f && b.FlipDriftZ() == 0.f, "normal flips captured a drift reference");
+    }
+
+    // ---- an actual roof flick still hits through RocketSim's contact solver ----
+    {
+        LabParams p;
+        p.motion = kLabConstant;
+        p.speedLimit = false;
+        p.bubble = p.floor = 50000.f;
+        LabWorld slow, fast;
+        for (LabWorld* w : { &slow, &fast }) w->Start(p, Facing(V(0.8660254f, 0.f, -0.5f)), kOctane, rng, 0.0);
+        slow.Place(V(-50.f, 0.f, 140.f), V(0.f, 0.f, -150.f), V(0.f, 0.f, 0.f));
+        fast.Place(V(-50.f, 0.f, 140.f), V(0.f, 0.f, 5850.f), V(0.f, 0.f, 6000.f));
+        float worstRel = 0.f;
+        for (int i = 0; i < 84; ++i)
+        {
+            LabControls c;
+            c.jump = i == 0;
+            c.pitch = i == 0 ? 1.f : 0.f;
+            slow.Step(p, c, rng, i * kTick);
+            fast.Step(p, c, rng, i * kTick);
+            worstRel = std::max(worstRel, Len(Sub(LabRelVel(fast.s), LabRelVel(slow.s))));
+        }
+        std::printf("roof flick: slow touches %d, fast touches %d, relative velocity error %.3f\n", slow.s.touches, fast.s.touches, worstRel);
+        CHECK(slow.s.touches > 0 && fast.s.touches == slow.s.touches, "roof flick should contact the ball in both frames");
+        CHECK(worstRel < 5.f, "shared drift changed the roof collision response (%.3f)", worstRel);
+    }
+
+    // ---- default speed caps still apply during the experimental Volley flip ----
+    {
+        LabParams p;
+        p.motion = kLabConstant;
+        p.bubble = p.floor = 50000.f;
+        LabWorld w;
+        w.Start(p, Facing(V(0.5f, 0.f, 0.8660254f)), kOctane, rng, 0.0);
+        w.Place(V(0.f, 1000.f, 300.f), V(0.f, 0.f, 2200.f), V(0.f, 0.f, 2200.f));
+        for (int i = 0; i < 84; ++i)
+        {
+            LabControls c;
+            c.jump = i == 0;
+            c.pitch = i == 0 ? 1.f : 0.f;
+            w.Step(p, c, rng, i * kTick);
+            CHECK(Len(w.s.carVel) <= 2300.1f && Len(w.s.ballVel) <= 6000.1f, "Volley flip bypassed a speed cap");
+        }
+    }
+
+    // ---- a bounce during an Infinite flip must discard the old drift reference ----
+    {
+        LabParams p;
+        p.motion = kLabConstant;
+        p.flips = kLabFlipsInfinite;
+        p.speedLimit = false;
+        LabWorld w;
+        w.Start(p, Facing(V(1.f, 0.f, 0.f)), kOctane, rng, 0.0);
+        w.Place(V(p.bubble - 1.f, 0.f, 0.f), V(1000.f, 0.f, 1000.f), V(0.f, 0.f, 1000.f));
+        LabControls c;
+        c.jump = true;
+        c.pitch = 1.f;
+        w.Step(p, c, rng, 0.0);
+        CHECK(w.s.bounces == 1 && w.FlipDriftZ() == 0.f, "bounce retained a flip's old drift reference");
+        for (int i = 1; i < 40; ++i)
+        {
+            w.Step(p, LabControls{}, rng, i * kTick);
+            CHECK(w.s.carVel.Z < 1.f, "old flip reference reintroduced upward speed after a bounce");
+        }
+    }
+
     // ---- hits: the car slows, spins, and where it lands changes how the ball leaves ----
     {
         HitResult nose = Hit(rng, V(13.88f + 59.f + 91.25f + 15.f, 0.f, 20.75f), 1500.f);

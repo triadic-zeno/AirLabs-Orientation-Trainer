@@ -7,6 +7,31 @@ shipped, the rules the owner works by, and what's happening right now.
 
 Read this section first; the rest of the file is the background.
 
+### Latest experiment: keep vertical drift through Volley flips (2026-10-29)
+
+- The owner approved trying flip braking/push in a frame moving with the car's vertical speed
+  at flip start. Constant/Volley only: `airlabs_lab_keep_flip_drift` defaults to 1, with a
+  **Keep vertical drift: ON/OFF** chip under Flips and speed. Off, and all Respawn flips, use
+  normal RocketSim flip braking. The invisible-floor Respawn idea was discussed, not built.
+- RocketSim's car latches its vertical velocity on an accepted flip. Its flip push speed scaling
+  subtracts that reference's component along the nose; horizontal velocity remains relevant.
+  Vertical damping and its sign check use `vZ - reference`, then add the reference back. The
+  reference is fixed during the flip, never follows the ball, and is cleared on momentum resets,
+  including a boundary bounce during Infinite flips. No velocity adjustment is made to the ball.
+- This is deliberately different from field-relative match flips. Normal gravity, absolute caps
+  and ball drag remain enabled as before. Caps/drag can still make fast and slow encounters differ;
+  do not promise full equivalence or exact Rocket League behaviour for this experiment.
+- Horizontal push direction, rotation, cancels and contacts still run through RocketSim. Its
+  push uses the normalized horizontal nose direction; near-vertical cars can still get horizontal
+  push. The flip log now includes the captured vertical drift or says normal flip braking.
+- Source is in the local build folder. Release/x64 MSVC compilation and expanded labworld tests
+  passed. With caps/drag off to isolate the change, +/-6000 uu/s vertical drift matched the slow
+  encounter within 0.02 uu/s and 0.004 uu over 0.7 s (front/back flips, level/tilted cars, cancels).
+  A roof flick registered one touch in both frames, with relative velocity error below 0.02 uu/s.
+  Disabled-option/Respawn parity, default caps during flips, Infinite-flip bounce reset and existing
+  gravity/hit/reset/bounce tests passed. No in-game result yet; the musty report remains open.
+  Checkpoint branch: codex/boost-lab-normal-gravity. No release/server change.
+
 ### Latest change: normal gravity and default speed limits (2026-10-28)
 
 - The owner approved normal gravity for BOTH simulated bodies and speed limits ON by default.

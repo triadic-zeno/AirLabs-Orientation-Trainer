@@ -489,7 +489,7 @@ void AirLabs::RegisterCvars()
     labMotion = mkI(kLabRespawn); labBubble = mkF(800.f); labPass = mkF(250.f); labSpeed = mkF(800.f); labHang = mkF(0.75f);
     labSpeedMin = mkF(400.f); labSpeedMax = mkF(1400.f); labCurve = mkF(0.f); labRun = mkF(0.f); labCone = mkF(180.f);
     labHeightMin = mkF(-90.f); labHeightMax = mkF(90.f); labSteep = mkF(45.f); labFloor = mkF(300.f);
-    labDynamic = mkB(false); labDust = mkB(false); labMarkers = mkB(true); labNavball = mkB(false); labSpeedLimit = mkB(true); labFlips = mkI(kLabFlipsReal); labDebug = mkB(true);
+    labDynamic = mkB(false); labDust = mkB(false); labMarkers = mkB(true); labNavball = mkB(false); labSpeedLimit = mkB(true); labKeepFlipDrift = mkB(true); labFlips = mkI(kLabFlipsReal); labDebug = mkB(true);
 
     reg("airlabs_mode", "1", "0 = Flick, 1 = Track (default), 2 = Hybrid, 3 = Chase", 0.f, static_cast<float>(kModeCount - 1)).bindTo(mode);
     reg("airlabs_preset_flick", "4", "Flick preset (last = Custom)", 0.f, maxIdx(kFlick)).bindTo(presetFlick);
@@ -561,6 +561,7 @@ void AirLabs::RegisterCvars()
     reg("airlabs_lab_steep", "45", "Boost Lab: the steepest a launched or bounced ball travels, up or down from level (deg)", 0.f, 90.f).bindTo(labSteep);
     reg("airlabs_lab_floor", "300", "Boost Lab: how far below your car the ball can go; it bounces off this floor (uu, 2000 = no floor)", 100.f, 2000.f).bindTo(labFloor);
     reg("airlabs_lab_speed_limit", "1", "Boost Lab: normal speed limits (car 2300, ball 6000) and ball air drag; gravity stays on", 0.f, 1.f).bindTo(labSpeedLimit);
+    reg("airlabs_lab_keep_flip_drift", "1", "Volley test: keep vertical drift through flips (0: normal match flip braking); ignored in Respawn", 0.f, 1.f).bindTo(labKeepFlipDrift);
     reg("airlabs_lab_flips", "1", "Boost Lab flips: 0 = off, 1 = real (one for each new ball, one for each flip reset), 2 = infinite", 0.f, 2.f).bindTo(labFlips);
     reg("airlabs_lab_debug", "1", "Boost Lab: a debug line on the HUD (jump presses, flips, flip resets, what the game says)", 0.f, 1.f).bindTo(labDebug);
     reg("airlabs_lab_dust", "0", "Boost Lab: specks of dust that streak past as you move", 0.f, 1.f).bindTo(labDust);
@@ -1613,6 +1614,7 @@ LabParams AirLabs::LabParamsNow() const
     p.steep = std::clamp(*labSteep, 0.f, 90.f);
     p.floor = *labFloor >= 1999.f ? 5000.f : std::clamp(*labFloor, 100.f, 2000.f);
     p.speedLimit = *labSpeedLimit;
+    p.keepFlipDrift = *labKeepFlipDrift;
     p.flips = std::clamp(*labFlips, 0, 2);
     return p;
 }
@@ -1767,7 +1769,8 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
             labFlipRelBefore = Sub(labWorld.s.ballVel, labWorld.s.carVel);
             labFlipTouchesBefore = labWorld.s.touches;
             cvarManager->log("[AirLabs] Boost Lab: flip (stick pitch " + Fmt("%.2f", in.pitch) + Fmt(" yaw %.2f", in.yaw) + Fmt(" roll %.2f)", in.roll) +
-                             Fmt(": ball %.0f uu away", Len(labWorld.s.ballPos)) + Fmt(", moving at %.0f uu/s relative to you", Len(labFlipRelBefore)));
+                             Fmt(": ball %.0f uu away", Len(labWorld.s.ballPos)) + Fmt(", moving at %.0f uu/s relative to you", Len(labFlipRelBefore)) +
+                             (p.motion == kLabConstant && p.keepFlipDrift ? Fmt(", kept vertical drift %.0f uu/s", labWorld.FlipDriftZ()) : ", normal flip braking"));
         }
         if (labFlipLogAt > 0.0 && gameTime >= labFlipLogAt)
         {

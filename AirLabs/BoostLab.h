@@ -91,6 +91,7 @@ namespace airlabs
         float floor = 5000.f;     // uu, how far below your car the ball can go (it bounces off this floor)
         float runSec = 0.f;       // s, run length (0 = endless)
         bool speedLimit = true;   // the car's 2300 cap, the ball's 6000 cap and its air drag; gravity stays on
+        bool keepFlipDrift = true; // Volley test: retain vertical drift through flips; ignored in Respawn
         int flips = kLabFlipsReal; // Real: one flip for each new ball, and one for each flip reset (wheels on the ball)
     };
 

@@ -23,6 +23,8 @@ CarState Car::GetState() {
 
 // Update our bullet stuff to this new state, replace our internal state with it
 void Car::SetState(const CarState& state) {
+	if (!state.isFlipping) airlabsFlipReferenceZUU = 0; // AirLabs change: clear on new ball/reset
+
 	btTransform rbTransform;
 	rbTransform.setOrigin(state.pos * UU_TO_BT);
 	rbTransform.setBasis(state.rotMat);
@@ -724,11 +726,15 @@ void Car::_UpdateDoubleJumpOrFlip(float tickTime, const MutatorConfig& mutatorCo
 					_internalState.flipTime = 0;
 					_internalState.hasFlipped = true;
 					_internalState.isFlipping = true;
+					// AirLabs change: retain vertical drift while applying the usual flip to
+					// velocity within that frame. The ball's velocity is never edited here.
+					airlabsFlipReferenceZUU = airlabsKeepVerticalFlipDrift ? _rigidBody.m_linearVelocity.z() * BT_TO_UU : 0.f;
 
 					// Apply initial dodge vel and set later dodge vel
 					// Replicated based on https://github.com/samuelpmish/RLUtilities/blob/develop/src/simulation/car.cc
 					{
-						float forwardSpeedRatio = abs(forwardSpeed_UU) / CAR_MAX_SPEED;
+						const float flipForwardSpeed_UU = forwardSpeed_UU - airlabsFlipReferenceZUU * GetForwardDir().z;
+						float forwardSpeedRatio = abs(flipForwardSpeed_UU) / CAR_MAX_SPEED;
 
 						btVector3 dodgeDir = btVector3(-controls.pitch, controls.yaw + controls.roll, 0);
 
@@ -746,10 +752,10 @@ void Car::_UpdateDoubleJumpOrFlip(float tickTime, const MutatorConfig& mutatorCo
 						if (!dodgeDir.fuzzyZero()) {
 							bool shouldDodgeBackwards;
 
-							if (abs(forwardSpeed_UU) < 100.0f) {
+							if (abs(flipForwardSpeed_UU) < 100.0f) {
 								shouldDodgeBackwards = dodgeDir.x() < 0.0f;
 							} else {
-								shouldDodgeBackwards = (dodgeDir.x() >= 0.0f) != (forwardSpeed_UU >= 0.0f);
+								shouldDodgeBackwards = (dodgeDir.x() >= 0.0f) != (flipForwardSpeed_UU >= 0.0f);
 							}
 
 							Vec initalDodgeVel = dodgeDir * FLIP_INITIAL_VEL_SCALE;
@@ -786,8 +792,12 @@ void Car::_UpdateDoubleJumpOrFlip(float tickTime, const MutatorConfig& mutatorCo
 	if (_internalState.isFlipping) {
 		_internalState.flipTime += tickTime;
 		if (_internalState.flipTime <= FLIP_TORQUE_TIME) {
-			if (_internalState.flipTime >= FLIP_Z_DAMP_START && (_rigidBody.m_linearVelocity.z() < 0 || _internalState.flipTime < FLIP_Z_DAMP_END)) {
-				_rigidBody.m_linearVelocity.z() *= powf(1 - FLIP_Z_DAMP_120, tickTimeScale);
+			// AirLabs change: use the captured frame for BOTH the damping condition
+			// and multiplier. Reference zero retains the normal RocketSim calculation.
+			const float referenceZBT = airlabsFlipReferenceZUU * UU_TO_BT;
+			const float flipVelZ = _rigidBody.m_linearVelocity.z() - referenceZBT;
+			if (_internalState.flipTime >= FLIP_Z_DAMP_START && (flipVelZ < 0 || _internalState.flipTime < FLIP_Z_DAMP_END)) {
+				_rigidBody.m_linearVelocity.z() = referenceZBT + flipVelZ * powf(1 - FLIP_Z_DAMP_120, tickTimeScale);
 			}
 		}
 	} else if (_internalState.hasFlipped) {

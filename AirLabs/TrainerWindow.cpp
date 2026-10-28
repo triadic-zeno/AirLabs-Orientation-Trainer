@@ -1629,6 +1629,12 @@ void AirLabs::WinLab()
         }
         ImGui::SameLine(0, 18);
         if (Chip("##labslimit", p.speedLimit ? "Speed limit: ON" : "Speed limit: OFF", p.speedLimit, bold)) SetCvarI("airlabs_lab_speed_limit", p.speedLimit ? 0 : 1);
+        if (p.motion == kLabConstant)
+        {
+            if (Chip("##labflipdrift", p.keepFlipDrift ? "Keep vertical drift: ON" : "Keep vertical drift: OFF", p.keepFlipDrift, bold))
+                SetCvarI("airlabs_lab_keep_flip_drift", p.keepFlipDrift ? 0 : 1);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Volley test: flips keep the vertical drift you had when the flip started.\nChanges normal match flip braking. Speed limits and ball drag still apply.\nOff: normal RocketSim flips.");
+        }
         FontScope f(small);
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kDim));
         ImGui::TextWrapped("Flip with jump and the stick, as in a match: the flip turns your car and pushes it (sideways and backwards flips "

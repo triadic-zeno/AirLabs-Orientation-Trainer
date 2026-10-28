@@ -152,6 +152,11 @@ public:
 	// The controls to simulate the car with
 	CarControls controls;
 
+	// AirLabs change: Volley can apply flip braking/push in a frame moving with the
+	// car's vertical drift at flip start. Off by default; not part of upstream physics.
+	bool airlabsKeepVerticalFlipDrift = false;
+	float airlabsFlipReferenceZUU = 0; // latched on an accepted flip; fixed for that flip
+
 	CarState GetState();
 	void SetState(const CarState& state);
 

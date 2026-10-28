@@ -462,6 +462,13 @@ pitches at 2.4 rad/s; off the front corner the ball leaves at 1802, 1076 of it s
   car (it's always told its flip is used up), and the game's own ball is frozen with its collisions
   off while the lab runs (as before a kickoff: visible, its own physics stopped), so only RocketSim
   moves things. That also means the game's own flip reset sound and effect don't play yet. Infinite: as many flips and double jumps as you like.
+- **Keep vertical drift (Volley/Constant only, on by default):** a test option for long rallies.
+  A flip keeps the upward or downward speed your car had when it started, and applies flip braking
+  to changes around that speed. Its push uses that same vertical reference; horizontal travel still
+  affects the push normally. Rotation, cancels and ball contacts are handled by RocketSim. This
+  deliberately changes match flip braking. Speed limits and ball drag still apply, so fast encounters
+  can still differ when those intervene. Switch it off to compare normal RocketSim flips. Respawn
+  always uses normal flip braking. A new ball or bounce clears the captured drift.
 - **Debug line (on for now, `airlabs_lab_debug`):** jump presses, flip resets, whether you have a
   flip, the car RocketSim is using (the preset closest to your car's hitbox: Octane, Dominus, Plank,
   Breakout, Hybrid or Merc), wheels on the ball and your car's spin.
@@ -531,6 +538,7 @@ PC clock if it ever looks wrong; the Readout shows which is in use.
 | `airlabs_lab_bubble`, `_pass`, `_speed`, `_dynamic`, `_speed_min`, `_speed_max`, `_curve`, `_cone`, `_height_min`, `_height_max`, `_steep`, `_floor`, `_run`, `_hang` | Boost Lab settings (see "Boost Lab") |
 | `airlabs_lab_flips 0` / `1` / `2` | Boost Lab flips: off / real (default) / infinite |
 | `airlabs_lab_speed_limit 1` / `0` | Boost Lab speed limits and ball drag on (default) / off; gravity stays on |
+| `airlabs_lab_keep_flip_drift 1` / `0` | Volley test: keep vertical drift through flips (default) / normal flip braking; ignored in Respawn |
 | `airlabs_lab_markers`, `airlabs_lab_navball`, `airlabs_lab_dust` (1 / 0) | Boost Lab: relative markers (on), navball (off), dust (off) |
 | `airlabs_lab_botprobe` | Test: spawn a bot car and hold it next to you for 20 s |
 | `airlabs_watch <run>` | Watch a leaderboard run's replay (the number is the run's id on the server) |

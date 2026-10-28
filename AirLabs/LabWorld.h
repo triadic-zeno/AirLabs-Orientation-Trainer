@@ -100,6 +100,7 @@ namespace airlabs
             return Basis{ FromRs(m.forward), FromRs(m.right), FromRs(m.up) };
         }
         RocketSim::CarState GetCarState() const { return car->GetState(); }
+        float FlipDriftZ() const { return car ? car->airlabsFlipReferenceZUU : 0.f; }
 
         // One 120 Hz tick.
         void Step(const LabParams& p, const LabControls& in, std::mt19937& rng, double now)
@@ -256,6 +257,7 @@ namespace airlabs
             m.unlimitedFlips = p.flips == kLabFlipsInfinite;
             m.unlimitedDoubleJumps = p.flips == kLabFlipsInfinite;
             m.boostUsedPerSecond = 0.f;                   // boost never runs out
+            car->airlabsKeepVerticalFlipDrift = p.motion == kLabConstant && p.keepFlipDrift;
             arena->SetMutatorConfig(m);
             p_flipsInfinite = p.flips == kLabFlipsInfinite;
             RocketSim::g_carMaxSpeedUU = p.speedLimit ? RocketSim::RLConst::CAR_MAX_SPEED : 0.f;
@@ -278,6 +280,7 @@ namespace airlabs
 
         void SetCarVel(const RocketSim::Vec& v)
         {
+            car->airlabsFlipReferenceZUU = 0.f; // a launch/bounce/test setup resets momentum in every flip mode
             RocketSim::CarState cs = car->GetState();
             cs.vel = v;
             car->SetState(cs);
