@@ -313,8 +313,9 @@ namespace airlabs
         const float jn = Len(Jn), jt = Len(Jt);
         if (jt > kLabFriction * jn) Jt = Scale(Jt, kLabFriction * jn / jt); // friction can only grip so hard
         const Vector J1 = Add(Jn, Jt);
-        // Psyonix's push: along car -> ball, with the part along the car's nose reduced.
-        Vector n2 = ballPos;
+        // Psyonix's push (RocketSim, Ball.cpp): along car -> ball with its world-vertical part
+        // scaled to 35%, then the part along the car's nose cut to 65%.
+        Vector n2 = Norm(V(ballPos.X, ballPos.Y, ballPos.Z * 0.35f));
         n2 = Norm(Sub(n2, Scale(car.forward, 0.35f * Dot(n2, car.forward))));
         const float dv = std::min(Len(Sub(ballVel, carVel)), 4600.f);
         const Vector J2 = Scale(n2, kLabBallMass * dv * LabPushScale(dv));

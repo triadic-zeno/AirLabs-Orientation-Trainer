@@ -104,10 +104,9 @@ equally, so it doesn't change their relative motion. Key choices, each made afte
 - **Every launch and bounce is reachable:** from rest, after a reaction allowance, boosting flat out,
   you could get there before it leaves the bubble; otherwise it goes slower. So fast balls need a
   bigger bubble.
-- **Touches are Rocket League's hit** (RLUtilities' measured model): an inelastic collision with
+- **Touches approximate Rocket League's hit** (RLUtilities' model): an inelastic collision with
   friction, using how fast the touching point of your car (including its spin) meets the ball, plus
-  Psyonix's extra push. The car is treated as not being spun by the hit itself (no car inertia term
-  yet): the one known simplification.
+  Psyonix's extra push. Not 1:1 yet: see "Top priority" below.
 - **Speed limit option, off by default:** the 2300 cap and the ball's air drag are measured against a
   field, and open space has none, so with it off only relative motion counts and air dribbles can
   last for ever.
@@ -121,6 +120,79 @@ equally, so it doesn't change their relative motion. Key choices, each made afte
   nose cone, height band; relative prograde and retrograde markers (on the ball = you'll hit it); an
   optional navball; optional dust.
 
+### Top priority: make the Boost Lab 1:1 with Rocket League
+
+The owner's requirement, in their words: "everything about this should be 1:1": a hit that lands on
+a certain part of your car rotates it, a touch costs you speed, different parts of the car bounce the
+ball at different speeds, and flip resets and musty flicks must be exact. The owner says the current
+flip reset "feels janky". **This comes before Phase 2.**
+
+**Where the current model falls short** (`AirLabs/BoostLab.h`): the car gets no rotation from a hit
+(no car inertia term), the ball has no spin, the contact is a single analytic impulse rather than
+Bullet's solver, the wheels are spheres at guessed rest positions with an 8 uu "suspension reach"
+(so flip resets are approximate), and the lab's air dribble pinning is our own. The Psyonix push
+now matches RocketSim (world-vertical scaled to 35%, then the nose part cut to 65%).
+
+**The plan: run RocketSim as the hidden world.** RocketSim (github.com/ZealanL/RocketSim, **MIT**:
+keep its licence notice, credit it in the README) reimplements Rocket League's physics on Bullet,
+closely enough that RLGym bots train on it. It has an arena with no geometry, `GameMode::THE_VOID`,
+and `RocketSim::InitFromMem({})` sets it up with no mesh files. Each physics tick:
+
+1. Feed the player's `ControllerInput` (throttle, steer, pitch, yaw, roll, boost, jump, handbrake)
+   into the RocketSim car's controls and step the arena one tick (120 Hz).
+2. Make the game car a puppet: pin its location, set its rotation from RocketSim's car (`rotMat`), so
+   air control, flips, cancels and hit-induced spin are all RocketSim's.
+3. Put the real ball at pin + (RocketSim ball pos - car pos), and mirror its spin for looks.
+4. Lab rules sit on top through RocketSim's state setters: the bubble, launches, bounces (which reset
+   the car's speed), reachability, the floor, the steepness.
+
+Settings map onto RocketSim's `MutatorConfig`: gravity 0 (open space; gravity cancels between car
+and ball anyway, but the car's speed cap doesn't), `ballDrag` (0 with the speed limit off),
+`unlimitedFlips` (Infinite). The car's 2300 cap is hard-coded (`Car.cpp`, around line 195): patch the
+vendored copy so the speed limit can be turned off.
+
+Flip resets then come out exactly as in the game: RocketSim's wheel suspension rays hit the ball, and
+**3 or more wheels in contact counts as being on the ground**, which restores your jump and flip
+(`Car.cpp`, `numWheelsInContact >= 3`). For the game's own flip reset sound and burst (v2.66), mirror
+RocketSim's jump and flip state onto the game car (`SetbJumped`, `SetbDoubleJumped`), so when the
+game's own wheels touch the real ball it sees the dodge come back. Test this in game.
+
+Building: add RocketSim's `src/` and `libsrc/` (a Bullet subset, about 3 MB of source) to the Visual
+Studio project, or as a static library project, and check MSVC compiles it into the plugin DLL. In
+the cloud session, building or running RocketSim's code needs the owner's approval: an automatic
+safety check blocks running downloaded code without it.
+
+Validate off-game before the owner tests: head-on and corner hits, the car's spin after an
+off-centre hit, the car's speed loss on a touch, flip pushes, a flip reset with three wheels, and a
+musty (backflip into a ball resting on the nose).
+
+**If RocketSim can't be built in:** port its pieces into `BoostLab.h`:
+- the car's inertia: Bullet's box formula from the hitbox, about the car's origin,
+  I = m/12 * (ly²+lz², lx²+lz², lx²+ly²), with m = 180 and full sizes l;
+- ball spin (inertia 0.4 m r², capped at 6 rad/s);
+- the full 3x3 effective-mass contact impulse with friction 2.0 and restitution 0;
+- the ball's collision radius of 91.25 (it's drawn at 92.75);
+- the extra push at most every other tick;
+- real wheel suspension raycasts (`WheelWrapper` gives `GetLocalSuspensionRayStart`,
+  `GetSuspensionTravel` and `GetWheelRadius`).
+
+Applying a hit's spin to the game car needs the sign convention between our maths and the game's
+angular velocity. Learn it at runtime: compare `GetAngularVelocity()` with the rotation measured
+from one tick to the next.
+
+**RocketSim facts already confirmed from its source** (`src/RLConst.h`, `src/Sim/Ball/Ball.cpp`):
+- masses: car 180, ball 30;
+- car-ball contact: friction 2.0, restitution 0;
+- ball: radius 91.25, top spin 6 rad/s, drag 0.03;
+- jumps: immediate push 291.67, then 1458.33/s held for up to 0.2 s; a double jump or flip is
+  allowed up to 1.25 s after the jump;
+- flips: push 500 (up to 1.9x sideways and 2.5x backwards at top speed, backwards times 16/15),
+  torque 260 (left/right) and 224 (forward/back) for 0.65 s, vertical speed damped to 35% between
+  0.15 and 0.21 s, pitch lock 1 s (+0.3 s);
+- extra hit push: the speed between car and ball (capped at 4600) times a curve (0.65 up to 500,
+  0.55 at 2300, 0.30 at 4600), along car -> ball with its world-vertical part at 35% and its nose
+  part at 65%, at most every other tick.
+
 **Waiting on in-game tests by the owner:**
 1. Flips and flip resets: the HUD debug line and the F6 console log every jump press and say whether
    the game or the lab does the flips. (Before this build nothing logged at all, cause unknown.)
@@ -128,7 +200,7 @@ equally, so it doesn't change their relative motion. Key choices, each made afte
 3. The car's hitbox and wheels as read from the game (logged when the lab starts), the navball's look,
    and whether the car twitches on touches.
 
-**The plan, in order** (agreed with the owner; Phase 1 is done):
+**The plan, in order** (agreed with the owner; Phase 1 is done; 1:1 physics comes first):
 
 - **Phase 2, Redirect:** a pass comes in, a target ring hangs in space; touch the ball so it leaves
   towards the ring. Scored on angle error.
