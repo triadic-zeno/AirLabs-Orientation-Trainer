@@ -63,7 +63,7 @@ int main()
         for (int i = 0; i < 20000; ++i)
         {
             Vector pos = (i % 2) ? Scale(LabRandomDir(rng), p.bubble) : LabSpawnPoint(rng, p, V(1.f, 0.f, 0.f));
-            Vector d = LabPickDirection(rng, pos, p.bubble, p.pass, p.bubble);
+            Vector d = LabPickDirection(rng, pos, p, p.bubble);
             if (LabPassDistance(pos, d) < p.pass - 0.5f || LabExitDistance(pos, d, p.bubble) < p.bubble - 0.5f) ++bad;
         }
         CHECK(bad == 0, "%d directions broke the pass distance or crossed too little", bad);
@@ -173,7 +173,7 @@ int main()
         Basis car = Facing(V(1.f, 0.f, 0.f));
         double t = 0.0;
         while (s.phase == kLabHang) { LabStep(s, rng, p, car, car, LabHitbox{}, false, 0.f, t, kDt); t += kDt; }
-        CHECK(AngleDeg(s.ballVel, shown) < 0.05f && std::fabs(Len(s.ballVel) - p.speed) < 0.5f, "launch didn't follow its arrow (%.3f deg, %.1f uu/s, phase %d)", AngleDeg(s.ballVel, shown), Len(s.ballVel), s.phase);
+        CHECK(AngleDeg(s.ballVel, shown) < 0.05f && std::fabs(Len(s.ballVel) - s.launchSpeed) < 0.5f && s.launchSpeed <= p.speed + 0.5f, "launch didn't follow its arrow (%.3f deg, %.1f uu/s, phase %d)", AngleDeg(s.ballVel, shown), Len(s.ballVel), s.phase);
     }
 
     // ---- the bounce fix: drifting flat out, then boosting at the ball, reaches it ----
@@ -205,23 +205,94 @@ int main()
         std::printf("after 4 s drifting flat out, a pilot boosting at the ball reached it %d/%d times within 6 s\n", reached, tries);
         CHECK(reached >= tries * 3 / 4, "only reached the ball %d/%d times", reached, tries);
     }
-    // A bounce gives the ball its own real speed whenever that can bring it back.
+    // ---- the three Constant bugs: super-speed bounces, boost doing nothing, the ball going under you ----
     {
         LabParams p;
         p.motion = kLabConstant;
-        int real = 0, n = 2000;
+        p.floor = 300.f;
+        p.steep = 45.f;
+        float worstRel = 0.f, deepest = 0.f, steepest = 0.f;
+        int stuck = 0;
+        const int runs = 30;
+        for (int run = 0; run < runs; ++run)
+        {
+            LabState s;
+            LabStart(s, rng, p, V(1.f, 0.f, 0.f), 0.0);
+            double t = 0.0;
+            Basis prev = Facing(V(1.f, 0.f, 0.f));
+            int b0 = 0;
+            // Stuck: for 3 s the ball keeps getting away (closing < 0), with no touch or bounce,
+            // and boosting at it hasn't improved the closing speed by even 50 uu/s.
+            float windowStart = 0.f;
+            double windowT = 0.0;
+            bool inWindow = false;
+            for (int i = 0; i < 120 * 60; ++i)
+            {
+                Basis car = Facing(s.ballPos); // always points at the ball and boosts
+                LabStep(s, rng, p, car, prev, LabHitbox{}, true, 0.f, t, kDt);
+                prev = car;
+                t += kDt;
+                float closing = -Dot(LabRelVel(s), Norm(s.ballPos));
+                if (s.touchedNow || s.bounces != b0 || closing >= 0.f) inWindow = false;
+                else if (!inWindow) { inWindow = true; windowStart = closing; windowT = t; }
+                else if (t - windowT >= 3.0)
+                {
+                    if (closing - windowStart < 50.f) { ++stuck; break; }
+                    windowStart = closing; windowT = t;
+                }
+                if (s.bounces > b0)
+                {
+                    b0 = s.bounces;
+                    worstRel = std::max(worstRel, Len(LabRelVel(s)));
+                    steepest = std::max(steepest, std::fabs(ElevationDeg(Norm(s.ballVel))));
+                    CHECK(Len(s.carVel) < 0.01f, "your speed wasn't reset by the bounce");
+                }
+                deepest = std::min(deepest, s.ballPos.Z);
+            }
+        }
+        std::printf("constant with a floor at 300 and paths up to 45 deg: bounces came at you at up to %.0f uu/s, the ball went %.0f uu below you, steepest bounce %.1f deg, stuck boosting for 3 s in %d/%d runs\n",
+                    worstRel, -deepest, steepest, stuck, runs);
+        CHECK(worstRel <= p.speed + 0.5f, "a bounce came at you at %.0f (set speed %.0f)", worstRel, p.speed);
+        CHECK(stuck == 0, "boosting at the ball gained nothing for 3 s in %d runs", stuck);
+        CHECK(deepest >= -p.floor - 25.f, "the ball went %.0f below you (floor %.0f)", -deepest, p.floor);
+        CHECK(steepest <= 45.1f, "a bounce went %.1f deg steep", steepest);
+    }
+    // Every launch is reachable; a fast ball is only slowed when it has to be.
+    {
+        int unreachable = 0, slowed = 0, n = 2000;
+        float slowest = 1e9f;
+        LabParams p;
+        p.speed = 2000.f;
         for (int i = 0; i < n; ++i)
         {
-            Vector pos = Scale(LabRandomDir(rng), p.bubble);
-            Vector carVel = Scale(LabRandomDir(rng), 600.f);
-            Vector w = LabPickVelocity(rng, pos, carVel, 800.f, p);
-            if (std::fabs(Len(w) - 800.f) < 0.5f) ++real;
-            Vector rel = Sub(w, carVel);
-            CHECK(Dot(rel, pos) < 0.f, "a bounce went outwards");
-            if (Dot(rel, pos) >= 0.f) break;
+            LabState s;
+            LabRespawn(s, rng, p, V(1.f, 0.f, 0.f), 0.0);
+            if (!LabReachable(s.ballPos, Scale(s.launchDir, s.launchSpeed), p, kLabReactSecWait)) ++unreachable;
+            if (s.launchSpeed < p.speed - 0.5f) ++slowed;
+            slowest = std::min(slowest, s.launchSpeed);
         }
-        std::printf("bounces with you drifting at 600: %d/%d at the ball's own real speed\n", real, n);
-        CHECK(real > n * 9 / 10, "only %d/%d bounces at a real speed", real, n);
+        std::printf("set speed 2000: %d/%d launches slowed to be reachable (slowest %.0f), %d unreachable\n", slowed, n, slowest, unreachable);
+        CHECK(unreachable == 0, "%d launches you couldn't reach", unreachable);
+        p.speed = 400.f;
+        int slowedSlow = 0;
+        for (int i = 0; i < 500; ++i) { LabState s; LabRespawn(s, rng, p, V(1.f, 0.f, 0.f), 0.0); if (s.launchSpeed < 399.5f) ++slowedSlow; }
+        CHECK(slowedSlow < 25, "%d/500 slow launches were slowed further", slowedSlow);
+    }
+
+    // Respawn launches keep to the floor and the steepness too.
+    {
+        LabParams p;
+        p.floor = 200.f;
+        p.steep = 30.f;
+        int bad = 0;
+        for (int i = 0; i < 3000; ++i)
+        {
+            LabState s;
+            LabRespawn(s, rng, p, V(1.f, 0.f, 0.f), 0.0);
+            if (s.ballPos.Z < -p.floor + kLabBallRadius - 0.5f || std::fabs(ElevationDeg(s.launchDir)) > 30.1f ||
+                LabRunDistance(s.ballPos, s.launchDir, p.bubble, p.floor) < p.bubble * 0.5f) ++bad;
+        }
+        CHECK(bad < 30, "%d respawns broke the floor or the steepness, or had nowhere to go", bad);
     }
 
     // ---- Constant: the ball never leaves the bubble, even boosting at random flat out ----
@@ -260,7 +331,7 @@ int main()
         Vector v0 = s.ballVel;
         for (int i = 0; i < 60; ++i) { LabStep(s, rng, p, car, car, LabHitbox{}, false, 0.f, t, kDt); t += kDt; } // 0.5 s
         float turned = AngleDeg(v0, s.ballVel);
-        CHECK(std::fabs(Len(s.ballVel) - Len(v0)) < 1.f, "curving changed the speed");
+        CHECK(std::fabs(Len(s.ballVel) - Len(v0) * (1.f - 0.5f * kLabBallDrag)) < 2.f, "curving changed the speed (beyond air drag)");
         CHECK(turned > 40.f && turned <= 45.5f, "turned %.1f deg in 0.5 s at 90 deg/s", turned);
     }
 

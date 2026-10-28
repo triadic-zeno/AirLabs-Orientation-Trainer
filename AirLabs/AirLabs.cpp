@@ -485,7 +485,7 @@ void AirLabs::RegisterCvars()
     showTips = mkB(true);
     labMotion = mkI(kLabRespawn); labBubble = mkF(800.f); labPass = mkF(250.f); labSpeed = mkF(800.f); labHang = mkF(0.75f);
     labSpeedMin = mkF(400.f); labSpeedMax = mkF(1400.f); labCurve = mkF(0.f); labRun = mkF(0.f); labCone = mkF(180.f);
-    labHeightMin = mkF(-90.f); labHeightMax = mkF(90.f);
+    labHeightMin = mkF(-90.f); labHeightMax = mkF(90.f); labSteep = mkF(45.f); labFloor = mkF(300.f);
     labDynamic = mkB(false); labDust = mkB(false); labMarkers = mkB(true); labNavball = mkB(false);
 
     reg("airlabs_mode", "1", "0 = Flick, 1 = Track (default), 2 = Hybrid, 3 = Chase", 0.f, static_cast<float>(kModeCount - 1)).bindTo(mode);
@@ -555,6 +555,8 @@ void AirLabs::RegisterCvars()
     reg("airlabs_lab_cone", "180", "Boost Lab: new balls appear within this angle of your nose (deg, 180 = anywhere)", 10.f, 180.f).bindTo(labCone);
     reg("airlabs_lab_height_min", "-90", "Boost Lab: lowest a new ball appears (deg above the horizon)", -90.f, 90.f).bindTo(labHeightMin);
     reg("airlabs_lab_height_max", "90", "Boost Lab: highest a new ball appears (deg above the horizon)", -90.f, 90.f).bindTo(labHeightMax);
+    reg("airlabs_lab_steep", "45", "Boost Lab: the steepest a launched or bounced ball travels, up or down from level (deg)", 0.f, 90.f).bindTo(labSteep);
+    reg("airlabs_lab_floor", "300", "Boost Lab: how far below your car the ball can go; it bounces off this floor (uu, 2000 = no floor)", 100.f, 2000.f).bindTo(labFloor);
     reg("airlabs_lab_dust", "0", "Boost Lab: specks of dust that streak past as you move", 0.f, 1.f).bindTo(labDust);
     reg("airlabs_lab_markers", "1", "Boost Lab: markers for how you're moving relative to the ball (on it = you'll hit it)", 0.f, 1.f).bindTo(labMarkers);
     reg("airlabs_lab_navball", "0", "Boost Lab: navball (your orientation, the ball and the markers, all the way round)", 0.f, 1.f).bindTo(labNavball);
@@ -1601,6 +1603,8 @@ LabParams AirLabs::LabParamsNow() const
     p.heightMin = std::clamp(*labHeightMin, -90.f, 90.f);
     p.heightMax = std::clamp(*labHeightMax, -90.f, 90.f);
     p.runSec = std::clamp(*labRun, 0.f, 600.f);
+    p.steep = std::clamp(*labSteep, 0.f, 90.f);
+    p.floor = *labFloor >= 1999.f ? 5000.f : std::clamp(*labFloor, 100.f, 2000.f);
     return p;
 }
 
@@ -1895,6 +1899,9 @@ void AirLabs::DrawLab(CanvasWrapper& canvas, const Vector2& screen)
         add(p.motion == kLabConstant ? Fmt("Touches  %.0f", lab.touches) : Fmt("Touches  %.0f", lab.touches) + Fmt("    Got away  %.0f", lab.misses));
         if (lab.runEnd < 1e17) add(Fmt("Time left  %.0f s", std::max(0.0, std::min(static_cast<double>(p.runSec), lab.runEnd - gameTime))));
         if (lab.touches > 0) add(Fmt("Last touch: met it at %.0f uu/s", lab.lastClosing) + Fmt(", it left you at %.0f", lab.lastBallSpeed), kColDim, 1.15f);
+        // Boosting at a ball that's faster than a car can go: say so, so it doesn't look broken.
+        if (labBoosting && speed > kCarTopSpeed - 10.f && closing < 0.f && Dot(Scale(lab.carVel, 1.f / speed), toBall) > 0.9f)
+            add(Fmt("The ball's faster than your top speed (2300): it's at %.0f", Len(lab.ballVel)) + " and slowing", kColWarn, 1.15f);
         add("Hold boost to fly. Let go and you keep drifting.", kColDim, 1.05f);
     }
     add(menuKey.empty() ? "Stop: the AirLabs window, or airlabs_lab" : "Stop: " + menuKey + " for the menu", kColDim, 1.05f);

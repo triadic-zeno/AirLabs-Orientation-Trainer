@@ -428,9 +428,21 @@ in `tools/boostlab_test.cpp`.
   you set), waits 0.75 s with an arrow showing where it'll go, then launches that way. Touch it and
   a new ball appears 0.6 s later; one that reaches the edge untouched got away. Your speed resets
   with each new ball.
-- **Constant:** the ball never stops. At the edge of the bubble it bounces back inwards at its own
-  real speed. Only if you're flying away faster than it could ever come back does it get carried
-  along with you, so it can't be lost.
+- **Constant:** the ball never stops. At the edge of the bubble (or the floor) it bounces back
+  inwards, and each bounce is a fresh start like a new ball: it comes back at the set speed and
+  your own speed resets. (Earlier, your hidden speed stayed at the 2300 cap, so boosting at the
+  ball could do nothing, and a bounce could come at you at the set speed plus 2300.) It can't be lost.
+- **Always reachable:** every launch and bounce is checked: a car starting from rest, after 0.4 s to
+  react and turn (0.2 s in Respawn, where the arrow shows the way first), boosting flat out up to
+  2300, must be able to reach the ball before it leaves the bubble. If no direction works at the set
+  speed, the ball goes slower (15% at a time) until one does. So fast balls need a bigger bubble:
+  set to 1400, they typically go about 620 in a 500 bubble, 860 in 800, 1000 in 1200, 1400 in 2000.
+- **Floor and steepness:** the ball never goes more than the floor distance below your car (300 uu
+  by default; it bounces off it), and launches and bounces travel no steeper than 45 degrees from
+  level by default (curving balls then curve left and right only).
+- **Air drag:** the ball loses about 3% of its speed a second, as in Rocket League; your car has no
+  drag. So a ball you've pushed just past your 2300 top speed comes back within reach, and the HUD
+  says when it's faster than you.
 - **Never straight at you.** Launches and bounces pick a direction whose path (as you see it) passes
   at least the pass distance (250 uu) from your car's centre and crosses at least a bubble radius
   of the bubble. From the edge that's 18-60 degrees off straight in.
@@ -499,7 +511,7 @@ PC clock if it ever looks wrong; the Readout shows which is in use.
 | `airlabs_lb_post 1` / `airlabs_lb_post 0` | Post your preset runs to the leaderboard / stop |
 | `airlabs_lab` | Start or stop the Boost Lab (test) |
 | `airlabs_lab_motion 0` / `1` | Boost Lab: Respawn / Constant |
-| `airlabs_lab_bubble`, `_pass`, `_speed`, `_dynamic`, `_speed_min`, `_speed_max`, `_curve`, `_cone`, `_height_min`, `_height_max`, `_run`, `_hang` | Boost Lab settings (see "Boost Lab") |
+| `airlabs_lab_bubble`, `_pass`, `_speed`, `_dynamic`, `_speed_min`, `_speed_max`, `_curve`, `_cone`, `_height_min`, `_height_max`, `_steep`, `_floor`, `_run`, `_hang` | Boost Lab settings (see "Boost Lab") |
 | `airlabs_lab_markers`, `airlabs_lab_navball`, `airlabs_lab_dust` (1 / 0) | Boost Lab: relative markers (on), navball (off), dust (off) |
 | `airlabs_lab_botprobe` | Test: spawn a bot car and hold it next to you for 20 s |
 | `airlabs_watch <run>` | Watch a leaderboard run's replay (the number is the run's id on the server) |

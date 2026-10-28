@@ -382,7 +382,7 @@ private:
     // Fly at a ball with real momentum: boost moves your car in a hidden world while it stays
     // pinned on screen, and the ball is drawn where it is relative to you. No scores yet.
     std::shared_ptr<int> labMotion;                                   // airlabs_lab_motion: 0 = Respawn, 1 = Constant
-    std::shared_ptr<float> labBubble, labPass, labSpeed, labSpeedMin, labSpeedMax, labHang, labCurve, labRun, labCone, labHeightMin, labHeightMax;
+    std::shared_ptr<float> labBubble, labPass, labSpeed, labSpeedMin, labSpeedMax, labHang, labCurve, labRun, labCone, labHeightMin, labHeightMax, labSteep, labFloor;
     std::shared_ptr<bool> labDynamic, labDust, labMarkers, labNavball;
     bool labOn = false;               // the lab is running (it has its own tick path)
     bool labNeedsStart = true;        // set up the car and the first ball on the next tick

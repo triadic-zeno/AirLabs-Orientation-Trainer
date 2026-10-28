@@ -1643,12 +1643,12 @@ void AirLabs::WinLab()
         if (Chip("##labdyn", "Dynamic", p.dynamic, bold, 34.f)) SetCvarI("airlabs_lab_dynamic", p.dynamic ? 0 : 1);
         if (p.dynamic)
         {
-            UiSliderF("Slowest##lab", "Each launch or bounce picks a random speed between these.", "airlabs_lab_speed_min", 100.f, 2300.f, "%.0f uu/s");
+            UiSliderF("Slowest##lab", "Each launch or bounce picks a random speed between these (slower if that's the only way it can be reached).", "airlabs_lab_speed_min", 100.f, 2300.f, "%.0f uu/s");
             UiSliderF("Fastest##lab", "Your car's top speed is 2300.", "airlabs_lab_speed_max", 100.f, 2300.f, "%.0f uu/s");
         }
         else
         {
-            UiSliderF("Ball speed##lab", "How fast the ball moves after it launches or bounces. Your car's top speed is 2300.",
+            UiSliderF("Ball speed##lab", "How fast the ball moves after it launches or bounces. A ball never goes faster than you could actually reach it from where you are, so fast balls need a bigger bubble: in Medium (800) they top out around 870, in Long around 1000, at 2000 uu the full 1400.",
                       "airlabs_lab_speed", 100.f, 2300.f, "%.0f uu/s");
         }
         UiSliderF("Curve##lab", "How fast the ball turns while it flies on its own (it picks a new way to curve every second). 0 = straight lines.",
@@ -1672,6 +1672,10 @@ void AirLabs::WinLab()
                   "airlabs_lab_cone", 10.f, 180.f, "%.0f deg");
         UiSliderF("Lowest##lab", "How far below (negative) or above the horizon a new ball can appear.", "airlabs_lab_height_min", -90.f, 90.f, "%.0f deg");
         UiSliderF("Highest##lab", "Set both to 0 for balls level with the horizon only.", "airlabs_lab_height_max", -90.f, 90.f, "%.0f deg");
+        UiSliderF("Steepest path##lab", "The steepest the ball travels, up or down from level, after a launch or bounce (and curving balls curve left and right only). 90 = any direction.",
+                  "airlabs_lab_steep", 0.f, 90.f, "%.0f deg");
+        UiSliderF("Floor##lab", "How far below your car the ball can go: it bounces off this floor (Respawn: it got away). 2000 = no floor.",
+                  "airlabs_lab_floor", 100.f, 2000.f, *labFloor >= 1999.f ? "No floor" : "%.0f uu below you");
     }
 
     // ---- run ----
@@ -1696,6 +1700,8 @@ void AirLabs::WinLab()
         SetCvarF("airlabs_lab_cone", 180.f);
         SetCvarF("airlabs_lab_height_min", -90.f);
         SetCvarF("airlabs_lab_height_max", 90.f);
+        SetCvarF("airlabs_lab_steep", 45.f);
+        SetCvarF("airlabs_lab_floor", 300.f);
         SetCvarF("airlabs_lab_run", 0.f);
         SetCvarF("airlabs_lab_hang", 0.75f);
     }

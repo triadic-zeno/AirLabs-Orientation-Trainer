@@ -11,10 +11,15 @@
 // The ball lives inside a bubble around the car. A new ball appears somewhere inside it,
 // waits a moment (its launch direction already chosen, so it can be shown), then launches.
 // Respawn: touch it and a new ball appears shortly after (one that reaches the edge untouched
-// got away). Constant: the ball never stops; at the edge it bounces back inwards. Launches and
-// bounces never aim the ball straight at you: its path passes at least `pass` uu from the car.
-// The ball's speed is its real speed in the hidden world; only when you're flying away faster
-// than it could ever come back does a bounce carry it along with you.
+// got away). Constant: the ball never stops; at the edge it bounces back inwards, and each bounce
+// is a fresh start like a new ball: it comes back at the set speed and your own speed resets (so
+// you're never stuck at the speed cap chasing a ball you can't catch, and a bounce never comes
+// at you faster than the set speed). Launches and bounces never aim the ball straight at you
+// (its path passes at least `pass` uu from the car), always go at a speed and in a direction you
+// can actually reach from where you are (slower than the set speed if it has to), never travel steeper than `steep` degrees
+// from level, and never take it below the floor (`floor` uu under you), which it also bounces off.
+//
+// The ball has Rocket League's air drag (about 3% of its speed a second); cars have none.
 //
 // Touches use Rocket League's ball-car hit as the community has measured it (RLUtilities):
 // a collision impulse from how fast the car's contact point (including its spin) moves into
@@ -34,10 +39,14 @@ namespace airlabs
     constexpr float kLabBallMass      = 30.f;      // Rocket League's masses (only the ratio matters)
     constexpr float kLabCarMass       = 180.f;
     constexpr float kLabFriction      = 2.f;       // ball-car friction coefficient
+    constexpr float kLabBallDrag      = 0.0305f;   // 1/s, the ball's air drag: it loses about 3% of its speed each second
     constexpr float kLabTouchGap      = 0.05f;     // s, a second touch can't count sooner than this
     constexpr float kLabBounceGap     = 0.25f;     // s, Constant: the ball can't bounce again sooner than this
     constexpr float kLabTouchedSec    = 0.6f;      // s, Respawn: a touched ball flies off this long, then a new one appears
     constexpr float kLabCurveAxisSec  = 1.f;       // s, a curving ball picks a new way to curve this often
+    constexpr float kLabReactSec      = 0.4f;      // s, reachable check: time to react and turn before you boost (Constant)
+    constexpr float kLabReactSecWait  = 0.2f;      // s, the same when the ball waited with its arrow first (Respawn)
+    constexpr float kLabReachMargin   = 140.f;     // uu, reachable check: close enough to touch (ball radius + about half a car)
 
     enum LabMotion { kLabRespawn = 0, kLabConstant = 1 };
     enum LabPhase  { kLabHang = 0, kLabFlying = 1, kLabTouched = 2, kLabDone = 3 };
@@ -55,6 +64,8 @@ namespace airlabs
         float spawnMin = 350.f;   // uu, the nearest a new ball appears
         float spawnCone = 180.f;  // deg, new balls appear within this angle of your nose (180 = anywhere)
         float heightMin = -90.f, heightMax = 90.f; // deg above the horizon a new ball can appear at
+        float steep = 90.f;       // deg, the steepest a launched or bounced ball travels, up or down from level
+        float floor = 5000.f;     // uu, how far below your car the ball can go (it bounces off this floor)
         float runSec = 0.f;       // s, run length (0 = endless)
     };
 
@@ -112,6 +123,14 @@ namespace airlabs
         return std::max(0.f, -b + std::sqrt(disc));
     }
 
+    // How far it travels along d before leaving the bubble or going through the floor.
+    inline float LabRunDistance(const Vector& p, const Vector& d, float radius, float floor)
+    {
+        float run = LabExitDistance(p, d, radius);
+        if (d.Z < -1e-4f) run = std::min(run, std::max(0.f, (p.Z + floor) / -d.Z));
+        return run;
+    }
+
     // The closest a ball at p moving along d comes to the car (from now on).
     inline float LabPassDistance(const Vector& p, const Vector& d)
     {
@@ -119,23 +138,72 @@ namespace airlabs
         return Len(Add(p, Scale(d, t)));
     }
 
-    // A direction (as you see it) for a ball at p: its path passes at least `pass` from the car
-    // and crosses at least `minRun` of the bubble (from the edge, that's a cone pointing inwards:
-    // minRun = the radius gives 60 degrees around the inward direction). If nothing random
-    // fits (settings that can't all be met), the closest fit is used.
-    inline Vector LabPickDirection(std::mt19937& rng, const Vector& p, float radius, float pass, float minRun)
+    // A direction for a ball at p: its path passes at least `pass` from the car, travels no
+    // steeper than `steep` degrees from level, and crosses at least `minRun` of the bubble before
+    // the edge or the floor (from the edge, that's a cone pointing inwards: minRun = the radius
+    // gives 60 degrees around the inward direction). If nothing random fits (settings that can't
+    // all be met), the closest fit is used.
+    inline Vector LabPickDirection(std::mt19937& rng, const Vector& p, const LabParams& prm, float minRun)
     {
-        Vector best = Scale(Norm(p), -1.f);
+        Vector best = Scale(Norm(V(p.X, p.Y, 0.f)), -1.f);
         float bestFit = -1.f;
-        for (int i = 0; i < 400; ++i)
+        const float steepSin = std::sin(std::clamp(prm.steep, 0.f, 90.f) * kDeg);
+        for (int i = 0; i < 600; ++i)
         {
             Vector d = LabRandomDir(rng);
-            float run = LabExitDistance(p, d, radius), miss = LabPassDistance(p, d);
-            if (run >= minRun && miss >= pass) return d;
-            float fit = std::min(minRun > 0.f ? run / minRun : 1.f, pass > 0.f ? miss / pass : 1.f);
+            if (std::fabs(d.Z) > steepSin) // too steep: flatten it to the limit
+            {
+                float h = std::sqrt(std::max(1e-6f, d.X * d.X + d.Y * d.Y));
+                float c = std::sqrt(std::max(0.f, 1.f - steepSin * steepSin));
+                d = V(d.X / h * c, d.Y / h * c, d.Z > 0.f ? steepSin : -steepSin);
+            }
+            float run = LabRunDistance(p, d, prm.bubble, prm.floor), miss = LabPassDistance(p, d);
+            if (run >= minRun && miss >= prm.pass) return d;
+            float fit = std::min(minRun > 0.f ? run / minRun : 1.f, prm.pass > 0.f ? miss / prm.pass : 1.f);
             if (fit > bestFit) { bestFit = fit; best = d; }
         }
         return best;
+    }
+
+    // How far a car starting from rest gets in t seconds, boosting flat out (capped at 2300).
+    inline float LabBoostDistance(float t)
+    {
+        if (t <= 0.f) return 0.f;
+        const float tCap = kCarTopSpeed / kBoostAccel;
+        if (t <= tCap) return 0.5f * kBoostAccel * t * t;
+        return 0.5f * kBoostAccel * tCap * tCap + kCarTopSpeed * (t - tCap);
+    }
+
+    // Could you reach a ball at p moving at w (your car at rest), after `react` seconds to react
+    // and turn, before it leaves the bubble or goes through the floor?
+    inline bool LabReachable(const Vector& p, const Vector& w, const LabParams& prm, float react)
+    {
+        const float sp = Len(w);
+        float tMax = 4.f;
+        if (sp > 1.f) tMax = std::min(tMax, LabRunDistance(p, Scale(w, 1.f / sp), prm.bubble, prm.floor) / sp);
+        for (float t = 0.f; t <= tMax + 1e-4f; t += 0.02f)
+            if (Len(Add(p, Scale(w, t))) - kLabReachMargin <= LabBoostDistance(t - react)) return true;
+        return false;
+    }
+
+    // A launch or bounce for a ball at p (your car at rest): a direction that keeps the pass
+    // distance, the steepness and the run across the bubble, at a speed you can actually reach
+    // it at. Starts at `speed`, and goes slower (by 15% at a time, down to 150) until a direction
+    // is reachable.
+    inline Vector LabPickLaunch(std::mt19937& rng, const Vector& p, const LabParams& prm, float speed, float react)
+    {
+        float sp = speed;
+        for (int round = 0; round < 14; ++round)
+        {
+            for (int i = 0; i < 40; ++i)
+            {
+                Vector d = LabPickDirection(rng, p, prm, prm.bubble);
+                if (LabReachable(p, Scale(d, sp), prm, react)) return Scale(d, sp);
+            }
+            if (sp <= 150.f) break;
+            sp = std::max(150.f, sp * 0.85f);
+        }
+        return Scale(LabPickDirection(rng, p, prm, prm.bubble), sp);
     }
 
     inline float LabNextSpeed(std::mt19937& rng, const LabParams& p)
@@ -143,26 +211,6 @@ namespace airlabs
         if (!p.dynamic) return p.speed;
         float lo = std::min(p.speedMin, p.speedMax), hi = std::max(p.speedMin, p.speedMax);
         return std::uniform_real_distribution<float>(lo, hi)(rng);
-    }
-
-    // A real velocity for a ball at p bouncing (or launching) while your car moves at carVel:
-    // speed `speed` in the hidden world, with the path you see keeping the pass distance and
-    // crossing the bubble. Only if no real direction can do that (you're flying away faster
-    // than it can come back) does the ball get carried along with you.
-    inline Vector LabPickVelocity(std::mt19937& rng, const Vector& p, const Vector& carVel, float speed, const LabParams& prm)
-    {
-        const float minRel = 150.f; // as you see it, it must come back at least this fast
-        for (int i = 0; i < 600; ++i)
-        {
-            Vector w = Scale(LabRandomDir(rng), speed);
-            Vector rel = Sub(w, carVel);
-            float rs = Len(rel);
-            if (rs < minRel) continue;
-            Vector d = Scale(rel, 1.f / rs);
-            if (LabExitDistance(p, d, prm.bubble) >= prm.bubble && LabPassDistance(p, d) >= prm.pass) return w;
-        }
-        Vector d = LabPickDirection(rng, p, prm.bubble, prm.pass, prm.bubble);
-        return Add(carVel, Scale(d, speed));
     }
 
     // A spot for a new ball, between spawnMin and a little inside the edge, within spawnCone
@@ -174,14 +222,17 @@ namespace airlabs
         float r = std::uniform_real_distribution<float>(lo, hi)(rng);
         const float cone = std::clamp(p.spawnCone, 10.f, 180.f);
         const float hMin = std::min(p.heightMin, p.heightMax), hMax = std::max(p.heightMin, p.heightMax);
+        const float lowest = -(p.floor - kLabBallRadius); // keep it above the floor
         Vector d = LabRandomDir(rng);
         for (int i = 0; i < 2000; ++i)
         {
             float e = ElevationDeg(d);
-            if (AngleDeg(d, nose) <= cone && e >= hMin && e <= hMax) break;
+            if (AngleDeg(d, nose) <= cone && e >= hMin && e <= hMax && d.Z * r >= lowest) break;
             d = LabRandomDir(rng);
         }
-        return Scale(d, r);
+        Vector out = Scale(d, r);
+        if (out.Z < lowest) out.Z = lowest;
+        return out;
     }
 
     // The point of the car's hitbox nearest p, relative to the car's origin.
@@ -248,8 +299,9 @@ namespace airlabs
         s.carVel = V(0.f, 0.f, 0.f);
         s.ballVel = V(0.f, 0.f, 0.f);
         s.ballPos = LabSpawnPoint(rng, p, nose);
-        s.launchDir = LabPickDirection(rng, s.ballPos, p.bubble, p.pass, p.bubble);
-        s.launchSpeed = LabNextSpeed(rng, p);
+        const Vector w = LabPickLaunch(rng, s.ballPos, p, LabNextSpeed(rng, p), kLabReactSecWait);
+        s.launchSpeed = Len(w);
+        s.launchDir = Scale(w, 1.f / std::max(1.f, s.launchSpeed));
         s.free = false;
         s.phase = kLabHang;
         s.phaseEnd = now + p.hangSec;
@@ -293,6 +345,10 @@ namespace airlabs
             s.curveAxisUntil = 0.0;
         }
 
+        // ---- air drag: the ball slowly loses speed (so a ball pushed just past your top speed
+        // doesn't stay out of reach for ever, as in a match) ----
+        if (s.phase != kLabHang) s.ballVel = Scale(s.ballVel, std::max(0.f, 1.f - kLabBallDrag * dt));
+
         // ---- a free ball curves: its direction turns steadily about an axis that changes every second ----
         if (s.free && p.curve > 0.f && s.phase == kLabFlying)
         {
@@ -302,11 +358,20 @@ namespace airlabs
                 const Vector dir = Scale(s.ballVel, 1.f / sp);
                 if (now >= s.curveAxisUntil || std::fabs(Dot(s.curveAxis, dir)) > 0.2f)
                 {
-                    Vector a = LabRandomDir(rng);
-                    s.curveAxis = Norm(Sub(a, Scale(dir, Dot(a, dir)))); // at right angles to its path
+                    if (p.steep < 89.f)
+                    {
+                        // Limited steepness: curve left or right only (turning about the vertical
+                        // keeps how steep it travels).
+                        s.curveAxis = std::uniform_int_distribution<int>(0, 1)(rng) ? V(0.f, 0.f, 1.f) : V(0.f, 0.f, -1.f);
+                    }
+                    else
+                    {
+                        Vector a = LabRandomDir(rng);
+                        s.curveAxis = Norm(Sub(a, Scale(dir, Dot(a, dir)))); // at right angles to its path
+                    }
                     s.curveAxisUntil = now + kLabCurveAxisSec;
                 }
-                s.ballVel = Scale(RotateAbout(dir, s.curveAxis, p.curve * kDeg * dt), sp);
+                if (std::fabs(Dot(s.curveAxis, dir)) < 0.999f) s.ballVel = Scale(RotateAbout(dir, s.curveAxis, p.curve * kDeg * dt), sp);
             }
         }
 
@@ -356,9 +421,12 @@ namespace airlabs
             return;
         }
 
-        // ---- the edge of the bubble ----
+        // ---- the edge of the bubble, and the floor ----
+        const Vector relNow = LabRelVel(s);
         const float r = Len(s.ballPos);
-        if (r >= p.bubble && Dot(s.ballPos, LabRelVel(s)) > 0.f)
+        const bool outEdge = r >= p.bubble && Dot(s.ballPos, relNow) > 0.f;
+        const bool outFloor = s.ballPos.Z <= -p.floor && relNow.Z < 0.f;
+        if (outEdge || outFloor)
         {
             if (p.motion == kLabRespawn)
             {
@@ -367,10 +435,13 @@ namespace airlabs
             }
             else if (now - s.lastBounce >= kLabBounceGap)
             {
-                // Bounce back inwards at a real speed; the ball can't be lost.
-                s.ballPos = Scale(s.ballPos, p.bubble / r);
-                s.ballVel = LabPickVelocity(rng, s.ballPos, s.carVel, LabNextSpeed(rng, p), p);
-                CapSpeed(s.ballVel, kLabBallTopSpeed);
+                // A fresh start, like a new ball that doesn't stop: it comes back at the set speed
+                // and your own speed resets (how you were moving relative to it is replaced either
+                // way; this keeps you from being stuck at the speed cap). It can't be lost.
+                if (outEdge) s.ballPos = Scale(s.ballPos, p.bubble / r);
+                if (s.ballPos.Z < -p.floor) s.ballPos.Z = -p.floor;
+                s.carVel = V(0.f, 0.f, 0.f);
+                s.ballVel = LabPickLaunch(rng, s.ballPos, p, LabNextSpeed(rng, p), kLabReactSec);
                 if (s.phase == kLabHang) s.phase = kLabFlying;
                 s.free = true;
                 s.curveAxisUntil = 0.0;
@@ -379,7 +450,9 @@ namespace airlabs
             }
             else
             {
-                s.ballPos = Scale(s.ballPos, p.bubble / r); // just bounced: it slides along the edge
+                // just bounced: it slides along the edge or the floor
+                if (outEdge) s.ballPos = Scale(s.ballPos, p.bubble / r);
+                if (s.ballPos.Z < -p.floor) s.ballPos.Z = -p.floor;
             }
         }
     }
