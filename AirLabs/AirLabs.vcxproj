@@ -105,10 +105,431 @@
     <ClCompile Include="imgui\imgui.cpp" />
     <ClCompile Include="imgui\imgui_draw.cpp" />
     <ClCompile Include="imgui\imgui_widgets.cpp" />
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\BroadphaseCollision\btAxisSweep3.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\BroadphaseCollision\btBroadphaseProxy.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\BroadphaseCollision\btCollisionAlgorithm.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\BroadphaseCollision\btDbvt.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\BroadphaseCollision\btDbvtBroadphase.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\BroadphaseCollision\btOverlappingPairCache.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\BroadphaseCollision\btQuantizedBvh.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\BroadphaseCollision\btRSBroadphase.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\BroadphaseCollision\btSimpleBroadphase.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\SphereTriangleDetector.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btActivatingCollisionAlgorithm.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btBoxBoxCollisionAlgorithm.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btBoxBoxDetector.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btCollisionDispatcher.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btCollisionObject.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btCollisionWorld.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btCompoundCollisionAlgorithm.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btCompoundCompoundCollisionAlgorithm.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btConvexConcaveCollisionAlgorithm.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btConvexConvexAlgorithm.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btConvexPlaneCollisionAlgorithm.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btDefaultCollisionConfiguration.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btEmptyCollisionAlgorithm.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btGhostObject.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btHashedSimplePairCache.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btInternalEdgeUtility.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btManifoldResult.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btSimulationIslandManager.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btSphereBoxCollisionAlgorithm.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btSphereSphereCollisionAlgorithm.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btSphereTriangleCollisionAlgorithm.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionDispatch\btUnionFind.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btBoxShape.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btBvhTriangleMeshShape.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btCollisionShape.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btCompoundShape.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btConcaveShape.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btConvexHullShape.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btConvexInternalShape.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btConvexPolyhedron.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btConvexShape.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btEmptyShape.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btOptimizedBvh.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btPolyhedralConvexShape.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btShapeHull.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btSphereShape.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btStaticPlaneShape.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btStridingMeshInterface.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btTetrahedronShape.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btTriangleBuffer.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btTriangleCallback.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btTriangleIndexVertexArray.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btTriangleMesh.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\CollisionShapes\btTriangleMeshShape.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\NarrowPhaseCollision\btContinuousConvexCollision.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\NarrowPhaseCollision\btConvexCast.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\NarrowPhaseCollision\btGjkConvexCast.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\NarrowPhaseCollision\btGjkEpa2.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\NarrowPhaseCollision\btGjkEpaPenetrationDepthSolver.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\NarrowPhaseCollision\btGjkPairDetector.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\NarrowPhaseCollision\btPersistentManifold.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\NarrowPhaseCollision\btPolyhedralContactClipping.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\NarrowPhaseCollision\btRaycastCallback.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\NarrowPhaseCollision\btSubSimplexConvexCast.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletCollision\NarrowPhaseCollision\btVoronoiSimplexSolver.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletDynamics\ConstraintSolver\btContactConstraint.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletDynamics\ConstraintSolver\btSequentialImpulseConstraintSolver.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletDynamics\ConstraintSolver\btTypedConstraint.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletDynamics\Dynamics\btDiscreteDynamicsWorld.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletDynamics\Dynamics\btRigidBody.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletDynamics\Vehicle\btDefaultVehicleRaycaster.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\BulletDynamics\Vehicle\btWheelInfo.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\LinearMath\TaskScheduler\btTaskScheduler.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\LinearMath\TaskScheduler\btThreadSupportPosix.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\LinearMath\TaskScheduler\btThreadSupportWin32.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\LinearMath\btAlignedAllocator.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\LinearMath\btConvexHull.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\LinearMath\btConvexHullComputer.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\LinearMath\btGeometryUtil.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\LinearMath\btPolarDecomposition.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\LinearMath\btQuickprof.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\LinearMath\btReducedVector.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\LinearMath\btSerializer.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\LinearMath\btSerializer64.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\LinearMath\btThreads.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\libsrc\bullet3-3.24\LinearMath\btVector3.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\BulletLink.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\CollisionMeshFile\CollisionMeshFile.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\Math\Math.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\Math\MathTypes\MathTypes.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\RocketSim.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\Sim\Arena\Arena.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\Sim\Arena\ArenaConfig\ArenaConfig.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\Sim\Arena\DropshotTiles\DropshotTiles.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\Sim\Ball\Ball.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\Sim\BallHitInfo\BallHitInfo.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\Sim\BallPredTracker\BallPredTracker.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\Sim\BoostPad\BoostPad.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\Sim\BoostPad\BoostPadGrid\BoostPadGrid.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\Sim\Car\Car.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\Sim\Car\CarConfig\CarConfig.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\Sim\GameEventTracker\GameEventTracker.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\Sim\MutatorConfig\MutatorConfig.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\Sim\PhysState\PhysState.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
+    <ClCompile Include="..\thirdparty\RocketSim\src\Sim\btVehicleRL\btVehicleRL.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <ConformanceMode>false</ConformanceMode>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AirLabs.h" />
     <ClInclude Include="BoostLab.h" />
+    <ClInclude Include="LabWorld.h" />
     <ClInclude Include="EmbeddedFonts.h" />
     <ClInclude Include="Replay.h" />
     <ClInclude Include="Tips.h" />

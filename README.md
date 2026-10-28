@@ -414,8 +414,18 @@ The server is a Cloudflare Worker with a D1 database, in `server/` (see `server/
 ## Boost Lab (test)
 
 Fly at the ball with real momentum. It's on its own page in the window (**Boost Lab**), and is a
-test: there are no scores or leaderboard yet. The physics is in `AirLabs/BoostLab.h`, with tests
-in `tools/boostlab_test.cpp`.
+test: there are no scores or leaderboard yet.
+
+**The physics is RocketSim** (`thirdparty/RocketSim`, MIT licence): a reimplementation of Rocket
+League's physics, close enough that machine-learning bots train on it. It runs your car and the ball
+in an empty arena with no gravity: boost, air control, flips and jumps, the ball-car hit (where the
+ball lands on your car decides how it leaves, how much speed your car loses and how your car spins),
+the wheels' suspension against the ball, and flip resets (three or more wheels on the ball). The
+game car is a puppet that shows RocketSim's car, held in place; the real ball is drawn where
+RocketSim's ball is relative to it. The lab's rules sit on top (`AirLabs/LabWorld.h`, using
+`AirLabs/BoostLab.h`). Tests: `tools/labworld_test.cpp` (with RocketSim) and `tools/boostlab_test.cpp`
+(the rules). Head-on at 1500 into a still ball, the ball leaves at 2129, your car drops to 1294 and
+pitches at 2.4 rad/s; off the front corner the ball leaves at 1802, 1076 of it sideways.
 
 - **How it moves.** Your car stays pinned on screen, but underneath it moves in a hidden world:
   holding boost pushes it along its nose at 991.7 uu/s² (air throttle: 66.7 uu/s²), up to 2300 uu/s,
@@ -446,24 +456,14 @@ in `tools/boostlab_test.cpp`.
   against a field; open space has none, so with it off only how you move relative to the ball counts
   and an air dribble can go on for ever (gravity cancels between car and ball, as it does in a real one).
 - **Flips** (Off / Real / Infinite; Real by default): jump with the stick flips, jump without it is a
-  double jump. Jump reaches the game, and the game does the flip itself (its rotation, cancels and
-  stalls); the plugin adds the game's push to your momentum (the car is pinned with no speed each
-  tick, so the push shows up as the car's velocity on the next tick). The game keeps track of your
-  flip itself; the plugin only tells it you have one when you'd really get one: each new ball and
-  bounce (Real), or once a flip has finished (Infinite).
-- **Flip resets are the game's own.** The car's real wheels (read from the game) are contact points
-  in the lab's physics: a soft touch, as the suspension gives, with no Psyonix push. The real ball
-  is placed against the real wheels, so the game sees its own wheels touch the ball and gives the
-  flip back by its own rule (three or more wheels), with Rocket League's flip reset sound and effect
-  (added in v2.66).
-- **If the game won't flip a car held in the air** (it said the car had a flip but no push came within
-  4 ticks), the lab does the flips by its own rules from then on: Rocket League's push (RocketSim's
-  numbers: 500 uu/s, flattened to level, up to 1.9x sideways and 2.5 x 16/15 backwards at top speed;
-  a double jump is 291.7 along the roof), a 0.65 s turn at 5.5 rad/s, and flip resets when three
-  wheels are within 8 uu (suspension reach) of the ball.
-- **Debug line (on for now, `airlabs_lab_debug`):** jump presses, flips, flip resets, who does the
-  flips (game or lab) and whether the game says you have a flip. Every jump press is also written to
-  the F6 console with the game's flip state.
+  double jump, all by RocketSim's rules (Rocket League's). Real gives one flip with each new ball and
+  each bounce (it lasts until you use it, like a flip reset), and one for every **flip reset**: three
+  or more wheels on the ball, decided by RocketSim's own wheel suspension. The game car's flip state
+  follows RocketSim's, so the game's own wheels touching the real ball can play its flip reset effect
+  (added in v2.66; to be confirmed in game). Infinite: as many flips and double jumps as you like.
+- **Debug line (on for now, `airlabs_lab_debug`):** jump presses, flip resets, whether you have a
+  flip, the car RocketSim is using (the preset closest to your car's hitbox: Octane, Dominus, Plank,
+  Breakout, Hybrid or Merc), wheels on the ball and your car's spin.
 - **A Respawn ball you keep touching stays:** a new one comes 1.5 s after your last touch (or when it
   reaches the edge), so you can dribble it.
 - **Never straight at you.** Launches and bounces pick a direction whose path (as you see it) passes
@@ -472,13 +472,6 @@ in `tools/boostlab_test.cpp`.
 - **Ball speed:** Slow 400, Medium 800, Fast 1400 uu/s, any speed, or Dynamic (a random speed for
   each launch or bounce). **Curve:** a ball flying on its own turns at this many degrees a second,
   picking a new way to curve every second. **Run length:** a run ends after this long (boost to go again).
-- **Touches** are Rocket League's ball-car hit as the community has measured it (RLUtilities): a
-  collision impulse from how fast the touching point of your car (including its spin) moves into
-  the ball, with friction (the car 180, the ball 30, the ball able to roll; the car is treated as
-  not turning from the hit), plus Psyonix's extra push of 0.65x the speed between car and ball
-  (0.55x at 2300, 0.30x at 4600) along car -> ball, with the part along the nose cut to 35%. Head-on
-  into a still ball: at 200 uu/s it leaves at 301 (130 away from your car); at 1500, at 2177.
-  Your car gets the recoil.
 - **On screen:** green markers show where you're heading relative to the ball (on the ball = you'll
   hit it) and the opposite way (boost there to slow down). A waiting ball has a ring (yellow and
   pulsing; a flying ball has none), and there's an arrow at the screen's edge when it's off screen. Optional: a **navball**
@@ -565,6 +558,9 @@ Air physics constants: community measurements from
 - **Font:** Inter by Rasmus Andersson, SIL Open Font License 1.1 (`AirLabs/fonts/OFL.txt`).
 - **UI library:** Dear ImGui by Omar Cornut, MIT License (`AirLabs/imgui/LICENSE.txt`).
 - **Air physics constants:** community measurements from smish.dev.
+- **Boost Lab physics:** RocketSim by ZealanL, MIT License (`thirdparty/RocketSim/LICENSE`; one change
+  for AirLabs, listed in `thirdparty/RocketSim/AIRLABS.md`). RocketSim contains no code from Rocket
+  League.
 - **Rank icons and rank names:** Rocket League's, by Psyonix / Epic Games.
 
 AirLabs is a free fan-made training tool. Portions of the materials used are trademarks and/or

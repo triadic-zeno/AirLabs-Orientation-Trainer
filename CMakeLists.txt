@@ -28,10 +28,16 @@ add_library(AirLabs SHARED
   "${SRC}/TrainerWindow.cpp"
   "${SRC}/TrainerCore.h"
   "${SRC}/BoostLab.h"
+  "${SRC}/LabWorld.h"
   "${SRC}/EmbeddedFonts.h"
   "${SRC}/imgui/imgui.cpp"
   "${SRC}/imgui/imgui_draw.cpp"
   "${SRC}/imgui/imgui_widgets.cpp")
+
+# RocketSim (thirdparty/RocketSim, MIT): the Boost Lab's physics.
+file(GLOB_RECURSE ROCKETSIM_SRC "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/RocketSim/*.cpp")
+target_sources(AirLabs PRIVATE ${ROCKETSIM_SRC})
+set_source_files_properties(${ROCKETSIM_SRC} PROPERTIES COMPILE_OPTIONS "/W0")
 
 target_include_directories(AirLabs PRIVATE "${BM_SDK}/include" "${SRC}")
 target_link_libraries(AirLabs PRIVATE "${BM_SDK}/lib/pluginsdk.lib")

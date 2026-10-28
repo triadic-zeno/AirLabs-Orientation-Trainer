@@ -127,7 +127,7 @@ a certain part of your car rotates it, a touch costs you speed, different parts 
 ball at different speeds, and flip resets and musty flicks must be exact. The owner says the current
 flip reset "feels janky". **This comes before Phase 2.**
 
-**Where the current model falls short** (`AirLabs/BoostLab.h`): the car gets no rotation from a hit
+**Where the old hand-written model fell short** (`AirLabs/BoostLab.h`, before RocketSim): the car gets no rotation from a hit
 (no car inertia term), the ball has no spin, the contact is a single analytic impulse rather than
 Bullet's solver, the wheels are spheres at guessed rest positions with an 8 uu "suspension reach"
 (so flip resets are approximate), and the lab's air dribble pinning is our own. The Psyonix push
@@ -170,24 +170,51 @@ owner has approved building and running RocketSim in the cloud session (2026-10-
 - a car that had already flipped, with the ball rising at 150 uu/s into its wheels: 4 wheels in
   contact, flip reset YES, the ball resting on the suspension.
 
-**Next steps, in order:**
-1. Work out how RocketSim's `RotMat` maps onto `BasisFromRotator` (axis order and roll sign) with an
-   off-game test, so the game car can be set from RocketSim's car each tick.
-2. Vendor RocketSim into the repo (for example `thirdparty/RocketSim/`, with its LICENSE), and patch
-   the hard-coded 2300 car cap (`Car.cpp`) behind a switch for the speed limit option.
-3. Rebuild `LabTick` around a RocketSim arena: controls in, `Step(1)`, game car rotation and ball
-   position out, and the lab rules applied with `SetState`. Pick the CarConfig preset (Octane,
-   Dominus, Plank, Breakout, Hybrid, Merc) whose hitbox is closest to the game car's. Re-centre both
-   bodies now and then so positions stay small. Strip jump from the game car and mirror RocketSim's
-   jump and flip state onto it for the game's own flip reset effect.
-4. Keep `LabState` filled from RocketSim each tick so the HUD, markers and navball keep working.
-5. Off-game tests with RocketSim linked in; add it to the off-game sim; then the owner tests in game.
+**Done (2026-10-28):** RocketSim is vendored in `thirdparty/RocketSim` (MIT, version 2.2.1,
+commit c2baacb; one change for the speed limit, listed in `thirdparty/RocketSim/AIRLABS.md`) and
+added to `AirLabs.vcxproj` (warnings off, conformance mode off for its files) and `CMakeLists.txt`.
+`AirLabs/LabWorld.h` runs the lab on it:
+- controls go in and `Step(1)` runs; the game car shows RocketSim's car's rotation, held in place;
+- the lab's rules act through `SetState`, and `LabState` is mirrored each tick, so the HUD, markers
+  and navball still work;
+- the car preset is the one closest to the game car's hitbox;
+- the game car's `bJumped` / `bDoubleJumped` follow RocketSim's;
+- a new ball or bounce gives a flip that lasts until used (`hasJumped = false`, which is RocketSim's
+  flip-reset state).
 
-Validate off-game before the owner tests: head-on and corner hits, the car's spin after an
-off-centre hit, the car's speed loss on a touch, flip pushes, a flip reset with three wheels, and a
-musty (backflip into a ball resting on the nose).
+RocketSim's axes match the plugin's exactly: `Angle(yaw, pitch, roll)` in radians from the game's
+rotator gives the same forward, right and up vectors as `BasisFromRotator`. Its controls also match:
++pitch raises the nose, +yaw turns right, +roll tips right.
 
-**If RocketSim can't be built in:** port its pieces into `BoostLab.h`:
+`tools/labworld_test.cpp` passes:
+- nose hit at 1500: ball 2129, car drops to 1294, car spins at 2.4 rad/s;
+- corner hit: ball 1802, 1076 of it sideways, car spin 2.5;
+- top-edge hit: the ball goes up;
+- boost into the ball: it's touched;
+- after a flip you have none; a ball into the wheels: 4 wheels, a flip reset, flip back; the nose
+  gives no reset;
+- speed limit on: 2300, off: still speeding up (4233 after 4 s);
+- Constant: bounces come back at the set speed, reset your speed and give a flip.
+
+The off-game sim ran the whole plugin with RocketSim linked in.
+
+**Still to do:**
+1. **The owner builds it in Visual Studio.** RocketSim hasn't been compiled with MSVC inside this
+   project yet. If it fails, the usual suspects are `/permissive-` (already off for its files) and
+   `NOMINMAX` interplay. bakkesplugins builds from this project too, so it must build cleanly.
+2. **In-game checks:**
+   - the sticks drive the car the right way (they should; the conventions match);
+   - air roll, including free air roll (handbrake plus yaw becomes roll when the game doesn't
+     already give roll);
+   - whether the game's own flip reset effect plays;
+   - how the hits feel.
+3. **The ball's spin isn't shown yet** (the game ball's angular velocity is set to 0). Mirroring
+   RocketSim's needs the game's angular-velocity sign: learn it by comparing the ball's rotation
+   from one tick to the next.
+4. The old hand-written physics in `BoostLab.h` (`LabStep`, `LabHit`, `LabFlipImpulse`) is no longer
+   used by the plugin. Keep it or remove it once RocketSim is confirmed in game.
+
+**If RocketSim can't be built in (fallback):** port its pieces into `BoostLab.h`:
 - the car's inertia: Bullet's box formula from the hitbox, about the car's origin,
   I = m/12 * (ly²+lz², lx²+lz², lx²+ly²), with m = 180 and full sizes l;
 - ball spin (inertia 0.4 m r², capped at 6 rad/s);

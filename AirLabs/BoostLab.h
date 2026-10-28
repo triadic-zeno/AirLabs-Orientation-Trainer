@@ -1,6 +1,10 @@
 #pragma once
 // Boost Lab (test): fly at a ball in open space with real Rocket League momentum.
 //
+// NOTE: the plugin's physics is now RocketSim (LabWorld.h). This file keeps the lab's rules, which
+// LabWorld uses (spawns, launches, reachable speeds, the bubble, the floor, LabState), and the
+// earlier hand-written physics (LabStep, LabHit, LabFlipImpulse), kept for reference and its tests.
+//
 // The car stays pinned on screen and everything is worked out relative to it. Underneath,
 // there's a hidden world where the car really moves: boost pushes it along its nose (and it
 // keeps drifting when you let go: there are no brakes in the air), the ball has its own

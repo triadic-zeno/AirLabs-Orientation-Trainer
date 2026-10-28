@@ -25,6 +25,7 @@
 
 #include "TrainerCore.h"
 #include "BoostLab.h"
+#include "LabWorld.h"
 #include "Replay.h"
 #include "Tips.h"
 
@@ -385,18 +386,11 @@ private:
     std::shared_ptr<float> labBubble, labPass, labSpeed, labSpeedMin, labSpeedMax, labHang, labCurve, labRun, labCone, labHeightMin, labHeightMax, labSteep, labFloor;
     std::shared_ptr<bool> labDynamic, labDust, labMarkers, labNavball, labSpeedLimit;
     std::shared_ptr<int> labFlips;    // airlabs_lab_flips: 0 = off, 1 = real (one per ball, one per flip reset), 2 = infinite
-    // Flips: the game does them when it will (its push is added to your momentum); if it doesn't
-    // respond to a press, the lab does the flip itself from then on.
+    // RocketSim runs the hidden world (LabWorld.h): car, ball, hits, wheels, flips, flip resets.
+    airlabs::LabWorld labWorld;
     bool labJumpHeld = false;
-    int labFlipAwait = 0;             // ticks left to see the game's push after a press
-    int labFlipNative = -1;           // the game flips for us: -1 not known yet, 1 yes, 0 no
-    Vector labFlipStick{ 0.f, 0.f, 0.f }; // pitch, yaw, roll at the press
-    double labSimFlipUntil = -1.0;    // the lab's own flip: turning the car until then
-    float labSimFlipX = 0.f, labSimFlipY = 0.f;
-    double labFlipFlash = -10.0, labResetFlash = -10.0;
-    double labLastDodge = -10.0, labLastGrant = -10.0; // the game's last flip, and when it was last told you have one
-    bool labNeedsGrant = true, labGameHadFlip = false;
-    int labSeenBalls = 0, labSeenBounces = 0, labJumpPresses = 0, labGameResets = 0;
+    int labJumpPresses = 0;
+    double labResetFlash = -10.0;
     std::shared_ptr<bool> labDebug;   // airlabs_lab_debug: the debug line on the HUD
     void LabDoFlip(CarWrapper car, const airlabs::Basis& b); // the lab's own flip (the game didn't)
     bool labOn = false;               // the lab is running (it has its own tick path)
