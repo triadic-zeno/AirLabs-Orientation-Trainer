@@ -411,6 +411,35 @@ reload it.
 
 The server is a Cloudflare Worker with a D1 database, in `server/` (see `server/README.md`).
 
+## Boost Lab (test)
+
+Fly at the ball with real momentum. It's on its own page in the window (**Boost Lab**), and is a
+test: there are no scores or leaderboard yet. The physics is in `AirLabs/BoostLab.h`, with tests
+in `tools/boostlab_test.cpp`.
+
+- **How it moves.** Your car stays pinned on screen, but underneath it moves in a hidden world:
+  holding boost pushes it along its nose at 991.7 uu/s² (air throttle: 66.7 uu/s²), up to 2300 uu/s,
+  and letting go doesn't stop you. Turning doesn't change where you're going; only boost does. The
+  ball has its own velocity, and is drawn where it is relative to you. Gravity pulls the car and
+  the ball down equally, so it doesn't change how they move relative to each other and is left out.
+- **The bubble.** The ball always stays within the bubble around your car (800 uu by default, up to
+  2000 to test). On the standard field it also stops at the floor, walls and roof.
+- **Respawn:** a new ball appears anywhere in the bubble (any direction, evenly over the sphere),
+  waits 0.75 s, then launches. Touch it and it flies off; a new ball appears 0.6 s later. One that
+  reaches the edge untouched got away. Your speed resets with each new ball.
+- **Constant:** the ball never stops. At the edge of the bubble it bounces back inwards, at the set
+  speed as you see it, whatever you're doing, so it can't be lost.
+- **Never straight at you.** Launches and bounces pick a random direction whose path passes at least
+  the pass distance (250 uu) from your car's centre and crosses at least a bubble radius of the
+  bubble. From the edge that's 18-60 degrees off straight in.
+- **Touches are simple for now:** contact with your car's hitbox (read from your car) sends the ball
+  off at the touch speed (1500 uu/s) along the line from the hitbox's centre through the ball. How
+  hard you hit it doesn't matter yet; that's the next step.
+- **On screen:** specks of dust streak past as you move; a blue circle with three ticks shows where
+  you're drifting (with your speed), a circle with an X the opposite way. The ball has a ring
+  (yellow and pulsing while it waits), or an arrow at the screen's edge when it's off screen.
+- Boost reaches the game, so you see and hear it (it never runs out); jump is blocked.
+
 ## Assists page
 
 None of these affect whether a run counts.
@@ -455,6 +484,9 @@ PC clock if it ever looks wrong; the Readout shows which is in use.
 | `airlabs_reset_session` | Reset this session's run counter |
 | `airlabs_reset_directions` | Clear the direction grid |
 | `airlabs_lb_post 1` / `airlabs_lb_post 0` | Post your preset runs to the leaderboard / stop |
+| `airlabs_lab` | Start or stop the Boost Lab (test) |
+| `airlabs_lab_motion 0` / `1` | Boost Lab: Respawn / Constant |
+| `airlabs_lab_bubble`, `airlabs_lab_pass`, `airlabs_lab_speed`, `airlabs_lab_hit`, `airlabs_lab_hang` | Boost Lab test settings (see "Boost Lab") |
 | `airlabs_watch <run>` | Watch a leaderboard run's replay (the number is the run's id on the server) |
 | `airlabs_lb_url <url>` | The leaderboard server (only change this for a server of your own) |
 

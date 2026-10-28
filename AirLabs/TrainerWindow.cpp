@@ -150,6 +150,12 @@ namespace
             dl->AddLine(ImVec2(c.x, c.y - 10), ImVec2(c.x, c.y - 4), icol, 1.8f);
             dl->AddLine(ImVec2(c.x, c.y + 4), ImVec2(c.x, c.y + 10), icol, 1.8f);
             break;
+        case 5: // two chevrons: speed
+            dl->AddLine(ImVec2(c.x - 8, c.y - 7), ImVec2(c.x - 1, c.y), icol, 2.2f);
+            dl->AddLine(ImVec2(c.x - 1, c.y), ImVec2(c.x - 8, c.y + 7), icol, 2.2f);
+            dl->AddLine(ImVec2(c.x, c.y - 7), ImVec2(c.x + 7, c.y), icol, 2.2f);
+            dl->AddLine(ImVec2(c.x + 7, c.y), ImVec2(c.x, c.y + 7), icol, 2.2f);
+            break;
         case 4: // a podium
             dl->AddRectFilled(ImVec2(c.x - 3, c.y - 6), ImVec2(c.x + 3, c.y + 7), icol, 1.f);
             dl->AddRectFilled(ImVec2(c.x - 9, c.y - 1), ImVec2(c.x - 4, c.y + 7), icol, 1.f);
@@ -517,6 +523,7 @@ void AirLabs::DrawTrainerWindow()
     case 2:  WinAssists(); break;
     case 3:  WinHelp();    break;
     case 4:  WinLeaderboard(); break;
+    case 5:  WinLab();     break;
     default: WinPlay();    break;
     }
     ImGui::Dummy(ImVec2(0, 10));
@@ -638,9 +645,9 @@ void AirLabs::WinSidebar(float height)
     ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + 92.f));
 
     // Pages in sidebar order (the numbers are uiPage values).
-    static const int order[5] = { 0, 1, 4, 2, 3 };
-    static const char* labels[5] = { "Play", "Stats", "Assists", "Help", "Leaderboard" };
-    for (int k = 0; k < 5; ++k)
+    static const int order[6] = { 0, 5, 1, 4, 2, 3 };
+    static const char* labels[6] = { "Play", "Stats", "Assists", "Help", "Leaderboard", "Boost Lab" };
+    for (int k = 0; k < 6; ++k)
     {
         const int i = order[k];
         ImGui::SetCursorPosX(12.f);
@@ -715,11 +722,12 @@ void AirLabs::WinSidebar(float height)
     if (state == RunState::Ready)   { dotCol = kWarn; status = showResults ? "Run finished" : "Point at the ball"; }
     if (state == RunState::Running) { dotCol = kGood; status = runEnd < 1e17 ? "Running  " + std::string(Fmt("%.0f s left", std::max(0.0, runEnd - gameTime))) : "Running"; }
     if (state == RunState::Replay)  { dotCol = kAccentHi; status = "Watching a replay"; }
+    if (labOn)                      { dotCol = kGood; status = "Boost Lab"; }
     dl->AddCircleFilled(ImVec2(top.x + 18.f, top.y + 22.f), 5.f, dotCol, 16);
     DrawText(dl, uiFonts[kFontBold], ImVec2(top.x + 30.f, top.y + 12.f), kText, status.c_str());
     DrawText(dl, uiFonts[kFontSmall], ImVec2(top.x + 14.f, top.y + 44.f), kDim, "Open or close this window:");
     DrawText(dl, uiFonts[kFontBold], ImVec2(top.x + 14.f, top.y + 62.f), kText, "bind O AL_menu");
-    if (state == RunState::Idle) // the running status is wider, so the version only shows when idle
+    if (state == RunState::Idle && !labOn) // the running status is wider, so the version only shows when idle
         DrawText(dl, uiFonts[kFontSmall], ImVec2(bot.x - TextSize(uiFonts[kFontSmall], kWinVersion).x - 12.f, top.y + 14.f), kFaint, kWinVersion);
 }
 
@@ -839,7 +847,7 @@ void AirLabs::WinPlay()
         // The button, vertically centred on the right.
         ImVec2 btnPos(cardTop.x + card.Inner() - btnW, cardTop.y + std::max(0.f, (leftH - btnH) * 0.5f) - (state == RunState::Running && s.mode != kTrack && s.mode != kChase ? 12.f : 0.f));
         ImGui::SetCursorScreenPos(btnPos);
-        const bool running = state == RunState::Ready || state == RunState::Running || state == RunState::Replay;
+        const bool running = state == RunState::Ready || state == RunState::Running || state == RunState::Replay || labOn;
         if (BigButton("##otstart", running ? "STOP" : "START", running, ImVec2(btnW, btnH), uiFonts[kFontHeading]))
         {
             cvarManager->executeCommand("airlabs_toggle");
@@ -1512,6 +1520,130 @@ void AirLabs::WinAssists()
     ImGui::PushItemWidth(300.f);
     TabAssists();
     ImGui::PopItemWidth();
+}
+
+// ===========================================================================
+// Boost Lab (test)
+// ===========================================================================
+
+void AirLabs::WinLab()
+{
+    const float width = ImGui::GetContentRegionAvail().x - 34.f; // keep clear of the close button
+    ImFont* small = uiFonts[kFontSmall];
+    ImFont* bold = uiFonts[kFontBold];
+    const LabParams p = LabParamsNow();
+
+    {
+        FontScope f(uiFonts[kFontTitle]);
+        ImGui::TextUnformatted("Boost Lab");
+    }
+    ImGui::SameLine(0, 12);
+    Pill("TEST", small, Rgb(20, 22, 28), kWarn);
+
+    // ---- what it is, and the button ----
+    {
+        const float btnW = 190.f, btnH = 64.f;
+        Card card;
+        card.Begin(width, 22.f);
+        const ImVec2 top = ImGui::GetCursorScreenPos();
+        const float textW = card.Inner() - btnW - 24.f;
+        ImGui::BeginGroup();
+        ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + textW);
+        {
+            FontScope f(bold);
+            ImGui::TextUnformatted("Fly at the ball with real momentum.");
+        }
+        {
+            FontScope f(small);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kDim));
+            ImGui::TextWrapped("Hold boost to move towards where your nose points. Let go and you keep drifting, like in a match: "
+                               "only boost changes where you're going, so to slow down or turn, point somewhere else and boost. "
+                               "Your car stays put on screen and the ball moves instead.");
+            ImGui::TextWrapped("The blue circle shows where you're drifting (with your speed); the circle with an X is the opposite way.");
+            ImGui::PopStyleColor();
+        }
+        if (labOn)
+        {
+            ImGui::Dummy(ImVec2(0, 2));
+            FontScope f(bold);
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kGood), "Touches %d", lab.touches);
+            if (p.motion == kLabRespawn)
+            {
+                ImGui::SameLine(0, 18);
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kDim), "Got away %d", lab.misses);
+            }
+        }
+        else
+        {
+            FontScope f(small);
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kWarn), "Test version: no scores or leaderboard yet.");
+        }
+        ImGui::PopTextWrapPos();
+        ImGui::EndGroup();
+        const float leftH = ImGui::GetItemRectSize().y;
+        ImGui::SetCursorScreenPos(ImVec2(top.x + card.Inner() - btnW, top.y + std::max(0.f, (leftH - btnH) * 0.5f)));
+        if (BigButton("##labstart", labOn ? "STOP" : "START", labOn, ImVec2(btnW, btnH), uiFonts[kFontHeading]))
+        {
+            if (!labOn) closeRequested = true; // straight into it
+            LabToggle();
+        }
+        ImGui::SetCursorScreenPos(ImVec2(top.x, top.y + std::max(leftH, btnH)));
+        ImGui::Dummy(ImVec2(0, 0));
+        card.End(kCard, kBorder);
+        FontScope f(small);
+        ImGui::TextDisabled("Changes apply straight away, even while you play. Console: airlabs_lab starts and stops it.");
+    }
+
+    // ---- how the ball moves ----
+    SectionLabel(small, "BALL MOTION");
+    {
+        const float gap = 12.f, tileW = (width - gap) * 0.5f;
+        if (Tile("##labrespawn", "Respawn", "Touch it and it flies off. A new ball appears, waits a moment, then launches.",
+                 p.motion == kLabRespawn, ImVec2(tileW, 82.f), uiFonts[kFontHeading], small)) SetCvarI("airlabs_lab_motion", kLabRespawn);
+        ImGui::SameLine(0, gap);
+        if (Tile("##labconstant", "Constant", "The ball never stops: at the edge of the bubble it bounces back in a new direction.",
+                 p.motion == kLabConstant, ImVec2(tileW, 82.f), uiFonts[kFontHeading], small)) SetCvarI("airlabs_lab_motion", kLabConstant);
+    }
+
+    // ---- ball speed ----
+    SectionLabel(small, "BALL SPEED");
+    {
+        static const struct { const char* name; float v; } speeds[3] = { { "Slow", 400.f }, { "Medium", 800.f }, { "Fast", 1400.f } };
+        for (int i = 0; i < 3; ++i)
+        {
+            if (i) ImGui::SameLine(0, 8);
+            ImGui::PushID(i);
+            if (Chip("##labspd", speeds[i].name, std::fabs(p.speed - speeds[i].v) < 0.5f, bold, 34.f)) SetCvarF("airlabs_lab_speed", speeds[i].v);
+            ImGui::PopID();
+        }
+        ImGui::PushItemWidth(300.f);
+        UiSliderF("Ball speed##lab", "How fast the ball moves after it launches or bounces, as you see it. Your car's top speed is 2300.",
+                  "airlabs_lab_speed", 100.f, 2300.f, "%.0f uu/s");
+        ImGui::PopItemWidth();
+    }
+
+    // ---- test settings ----
+    SectionLabel(small, "TEST SETTINGS");
+    ImGui::PushItemWidth(300.f);
+    UiSliderF("Bubble radius##lab", "The ball always stays within this distance of your car. On the standard field it stops at the floor, walls and roof (about 850 uu up or down); the space map has none.",
+              "airlabs_lab_bubble", 300.f, 2000.f, "%.0f uu");
+    UiSliderF("Pass distance##lab", "A launched or bounced ball never heads straight at you: its path passes at least this far from your car's centre, so you always have to move to reach it. Bigger is harder.",
+              "airlabs_lab_pass", 0.f, 600.f, "%.0f uu");
+    UiSliderF("Touch speed##lab", "How fast a ball you touch leaves your car. (Simple touches for now: how hard you hit it doesn't matter yet.)",
+              "airlabs_lab_hit", 300.f, 3000.f, "%.0f uu/s");
+    if (p.motion == kLabRespawn)
+        UiSliderF("Wait before launch##lab", "How long a new ball waits before it takes off. Your speed resets with each new ball.",
+                  "airlabs_lab_hang", 0.f, 3.f, "%.2f s");
+    ImGui::PopItemWidth();
+    ImGui::Dummy(ImVec2(0, 6));
+    if (LinkButton("##labdefaults", "Back to the defaults", small, kAccentHi))
+    {
+        SetCvarF("airlabs_lab_bubble", 800.f);
+        SetCvarF("airlabs_lab_pass", 250.f);
+        SetCvarF("airlabs_lab_speed", 800.f);
+        SetCvarF("airlabs_lab_hit", 1500.f);
+        SetCvarF("airlabs_lab_hang", 0.75f);
+    }
 }
 
 void AirLabs::WinHelp()

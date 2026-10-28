@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "TrainerCore.h"
+#include "BoostLab.h"
 #include "Replay.h"
 #include "Tips.h"
 
@@ -376,6 +377,27 @@ private:
     int uiPage = 0, uiStatsPage = 0;
 
     std::mt19937 rng;
+
+    // ---- Boost Lab (test; physics in BoostLab.h) ----
+    // Fly at a ball with real momentum: boost moves your car in a hidden world while it stays
+    // pinned on screen, and the ball is drawn where it is relative to you. No scores yet.
+    std::shared_ptr<int> labMotion;                                   // airlabs_lab_motion: 0 = Respawn, 1 = Constant
+    std::shared_ptr<float> labBubble, labPass, labSpeed, labHitSpeed, labHang;
+    bool labOn = false;               // the lab is running (it has its own tick path)
+    bool labNeedsStart = true;        // set up the car and the first ball on the next tick
+    double labStartWall = -100.0;     // when it was started (it may have to load the map first)
+    bool labBoosting = false;
+    double labTouchFlash = -10.0, labMissFlash = -10.0; // game time of the last touch / miss (HUD flash)
+    airlabs::LabState lab;
+    airlabs::LabHitbox labHitbox;     // read from your car when the lab starts
+    std::vector<Vector> labDust;      // specks around the car (relative to it) that stream past as you move
+    airlabs::LabParams LabParamsNow() const;
+    void LabToggle();
+    void LabBegin();                  // game thread
+    void LabEnd();
+    void LabTick(CarWrapper car, ServerWrapper server, void* params, float dt);
+    void DrawLab(CanvasWrapper& canvas, const Vector2& screen);
+    void WinLab();
 
     // ---- setup ----
     void RegisterCvars();

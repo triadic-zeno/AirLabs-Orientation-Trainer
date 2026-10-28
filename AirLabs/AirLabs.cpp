@@ -396,6 +396,7 @@ void AirLabs::onLoad()
     notifier("airlabs_menu", [this] { ToggleWindow(); }, "Open or close the AirLabs window (bind it: bind O AL_menu)");
     notifier("AL_menu", [this] { ToggleWindow(); }, "Open or close the AirLabs window: bind <any key> AL_menu");
     notifier("al_menu", [this] { ToggleWindow(); }, "Open or close the AirLabs window (same as AL_menu)");
+    notifier("airlabs_lab", [this] { LabToggle(); }, "Start or stop the Boost Lab (test): fly at the ball with real momentum");
     notifier("airlabs_rank", [this] { RefreshRealRanks("asked"); }, "Print your Rocket League ranks as the game reports them (1v1, 2v2, 3v3)");
     notifier("airlabs_update", [this] { StartUpdate(); }, "Install the newest AirLabs from bakkesplugins (when the window says one is out)");
     cvarManager->registerNotifier("airlabs_watch", [this](std::vector<std::string> args) {
@@ -427,6 +428,8 @@ void AirLabs::onLoad()
         [this](CarWrapper car, void* params, std::string) { OnPhysicsTick(car, params); });
     // Leaving freeplay tears the game event down; release the pin.
     gameWrapper->HookEvent(kEndEvent, [this](std::string) {
+        if (labOn && WallSeconds() - labStartWall > 30.0) labOn = false; // (just started: it's loading the map)
+        labNeedsStart = true;
         state = RunState::Idle;
         hasTarget = false;
         spaceStopped = false;
@@ -479,6 +482,7 @@ void AirLabs::RegisterCvars()
     lbPost = mkB(true); lbUrl = std::make_shared<std::string>(kLeaderboardUrl);
     lbCustomName = std::make_shared<std::string>();
     showTips = mkB(true);
+    labMotion = mkI(kLabRespawn); labBubble = mkF(800.f); labPass = mkF(250.f); labSpeed = mkF(800.f); labHitSpeed = mkF(1500.f); labHang = mkF(0.75f);
 
     reg("airlabs_mode", "1", "0 = Flick, 1 = Track (default), 2 = Hybrid, 3 = Chase", 0.f, static_cast<float>(kModeCount - 1)).bindTo(mode);
     reg("airlabs_preset_flick", "4", "Flick preset (last = Custom)", 0.f, maxIdx(kFlick)).bindTo(presetFlick);
@@ -533,6 +537,14 @@ void AirLabs::RegisterCvars()
     reg("airlabs_hud_grid", "0", "Show the times-by-direction grid during Flick and Hybrid", 0.f, 1.f).bindTo(hudGrid);
     reg("airlabs_block_jump", "1", "Custom runs: block jump and boost while pinned", 0.f, 1.f).bindTo(blockJumpBoost);
     reg("airlabs_tips", "1", "Show a training tip on the Play page", 0.f, 1.f).bindTo(showTips);
+
+    // Boost Lab (test)
+    reg("airlabs_lab_motion", "0", "Boost Lab: 0 = Respawn (touch it and a new ball appears), 1 = Constant (the ball never stops)", 0.f, 1.f).bindTo(labMotion);
+    reg("airlabs_lab_bubble", "800", "Boost Lab: radius of the bubble around your car that the ball stays in (uu)", 300.f, 2000.f).bindTo(labBubble);
+    reg("airlabs_lab_pass", "250", "Boost Lab: the closest a launched or bounced ball's path comes to your car (uu)", 0.f, 600.f).bindTo(labPass);
+    reg("airlabs_lab_speed", "800", "Boost Lab: the ball's speed after a launch or bounce, as you see it (uu/s)", 100.f, 2300.f).bindTo(labSpeed);
+    reg("airlabs_lab_hit", "1500", "Boost Lab: how fast a ball you touch leaves your car (uu/s)", 300.f, 3000.f).bindTo(labHitSpeed);
+    reg("airlabs_lab_hang", "0.75", "Boost Lab, Respawn: how long a new ball waits before it launches (s)", 0.f, 3.f).bindTo(labHang);
 
     // Leaderboard
     cvarManager->registerCvar("airlabs_lb_name", "", "The name shown on the leaderboard (blank = your Rocket League name)", true, false, 0.f, false, 0.f, true).bindTo(lbCustomName);
@@ -775,6 +787,7 @@ void AirLabs::MakeCustom()
 void AirLabs::Start()
 {
     replayOver = false;
+    labOn = false;
     gameWrapper->Execute([this](GameWrapper* gw) {
         const bool inFreeplay = gw->IsInFreeplay();
         spaceCheckWall = -10.0; // look at the map now, not up to a second ago
@@ -820,6 +833,7 @@ void AirLabs::Stop()
 
 void AirLabs::Toggle()
 {
+    if (labOn) { LabEnd(); return; }
     if (state == RunState::Idle || state == RunState::Results) Start();
     else Stop();
 }
@@ -1037,7 +1051,7 @@ void AirLabs::EndRun(CarWrapper car, const Basis& b, const DrillSettings& s)
 
 void AirLabs::OnPhysicsTick(CarWrapper car, void* params)
 {
-    if (state == RunState::Idle && !*readout && !startOnLoad && pendingReplayRun == 0 && !OnSpaceMap()) return;
+    if (state == RunState::Idle && !labOn && !*readout && !startOnLoad && pendingReplayRun == 0 && !OnSpaceMap()) return;
     if (!gameWrapper->IsInFreeplay())
     {
         if (state != RunState::Idle) { state = RunState::Idle; hasTarget = false; }
@@ -1080,6 +1094,12 @@ void AirLabs::OnPhysicsTick(CarWrapper car, void* params)
     }
     const float dt = tickTiming ? 1.f / 120.f : wallDt;
     gameTime += dt;
+
+    if (labOn)
+    {
+        LabTick(car, server, params, dt);
+        return;
+    }
 
     const DrillSettings s = CurrentSettings();
 
@@ -1534,6 +1554,265 @@ Vector AirLabs::BallSpot(const Vector& dir, const DrillSettings& s) const
     // only a safety net.
     float dist = std::max(150.f, std::min(s.distance, ArenaLimit(pinLocation, dir)));
     return Add(pinLocation, Scale(dir, dist));
+}
+
+// ===========================================================================
+// Boost Lab (test): physics in BoostLab.h
+// ===========================================================================
+
+namespace
+{
+    constexpr float kDustBox = 1500.f; // the specks fill a cube this far out from the car each way
+    constexpr int kDustCount = 110;
+}
+
+LabParams AirLabs::LabParamsNow() const
+{
+    LabParams p;
+    p.motion = std::clamp(*labMotion, 0, 1);
+    p.bubble = std::clamp(*labBubble, 300.f, 2000.f);
+    p.pass = std::clamp(*labPass, 0.f, 600.f);
+    p.speed = std::clamp(*labSpeed, 100.f, 2300.f);
+    p.hitSpeed = std::clamp(*labHitSpeed, 300.f, 3000.f);
+    p.hangSec = std::clamp(*labHang, 0.f, 3.f);
+    return p;
+}
+
+void AirLabs::LabToggle()
+{
+    gameWrapper->Execute([this](GameWrapper*) {
+        if (labOn) LabEnd();
+        else LabBegin();
+    });
+}
+
+void AirLabs::LabBegin()
+{
+    if (state != RunState::Idle) Stop(); // ends a run or a replay
+    replayOver = false;
+    labOn = true;
+    labNeedsStart = true;
+    labStartWall = WallSeconds();
+    cvarManager->log("[AirLabs] Boost Lab started.");
+    // Like Start: the space map unless you chose the standard field. The lab begins once the
+    // map is up (the tick sets it up).
+    const bool inFreeplay = gameWrapper->IsInFreeplay();
+    spaceCheckWall = -10.0;
+    if (WantSpaceMap() && !(inFreeplay && OnSpaceMap())) { LoadSpaceMap(); return; }
+    if (!inFreeplay) LoadStandardMap();
+}
+
+void AirLabs::LabEnd()
+{
+    labOn = false;
+    labNeedsStart = true;
+    spaceStopped = true; // on the space map the car stays held, with the ball parked in front
+    cvarManager->log("[AirLabs] Boost Lab stopped.");
+}
+
+void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float dt)
+{
+    const LabParams p = LabParamsNow();
+
+    // ---- input: boost and throttle move you; boost still reaches the game, so you see and
+    // hear it (the car is pinned, so it can't actually move). Jump is blocked: a dodge would
+    // flip the car, and dodges aren't part of the lab yet.
+    bool boost = false;
+    float throttle = 0.f;
+    if (params)
+    {
+        auto* input = reinterpret_cast<ControllerInput*>(params);
+        inPitch = input->Pitch;
+        inYaw = input->Yaw;
+        inRoll = input->Roll;
+        boost = input->HoldingBoost || input->ActivateBoost;
+        throttle = input->Throttle;
+        input->Jump = 0;
+    }
+    labBoosting = boost;
+
+    pinLocation = V(0.f, 0.f, kArenaCentreZ);
+    if (labNeedsStart)
+    {
+        labNeedsStart = false;
+        const int yaw = StartYaw(OnSpaceMap() ? kSpaceFacing : 1);
+        car.SetRotation(Rotator(0, yaw, 0));
+        car.SetAngularVelocity(V(0.f, 0.f, 0.f), false);
+        havePrevBasis = false;
+        // Your car's hitbox (half sizes, or full sizes on some versions of the game).
+        Vector ext = car.GetLocalCollisionExtent(), off = car.GetLocalCollisionOffset();
+        if (ext.X > 20.f && ext.X < 400.f && ext.Y > 10.f && ext.Z > 5.f)
+        {
+            if (ext.X > 90.f) ext = Scale(ext, 0.5f);
+            labHitbox.half = ext;
+            labHitbox.offset = off;
+        }
+        cvarManager->log("[AirLabs] Boost Lab hitbox: half " + Fmt("%.1f", labHitbox.half.X) + Fmt(" x %.1f", labHitbox.half.Y) +
+                         Fmt(" x %.1f", labHitbox.half.Z) + Fmt(", offset %.1f", labHitbox.offset.X) + Fmt(" %.1f", labHitbox.offset.Y) +
+                         Fmt(" %.1f", labHitbox.offset.Z) + Fmt(" (raw extent X %.1f)", car.GetLocalCollisionExtent().X));
+        LabStart(lab, rng, p, gameTime);
+        std::uniform_real_distribution<float> u(-kDustBox, kDustBox);
+        labDust.clear();
+        for (int i = 0; i < kDustCount; ++i) labDust.push_back(V(u(rng), u(rng), u(rng)));
+        labTouchFlash = labMissFlash = -10.0;
+    }
+    car.SetLocation(pinLocation);
+    car.SetVelocity(V(0.f, 0.f, 0.f));
+    BoostWrapper bw = car.GetBoostComponent();
+    if (!bw.IsNull() && bw.GetCurrentBoostAmount() < 0.5f) bw.SetCurrentBoostAmount(1.f); // never runs out
+
+    Rotator rot = car.GetRotation();
+    const Basis b = BasisFromRotator(rot.Pitch, rot.Yaw, rot.Roll);
+    lastAim = b.forward;
+
+    LabStep(lab, rng, p, b, labHitbox, boost, throttle, gameTime, dt);
+    if (lab.touchedNow) labTouchFlash = gameTime;
+    if (lab.missedNow) labMissFlash = gameTime;
+
+    // The specks drift opposite to your movement; one that leaves the cube comes back in on
+    // the far side, so there are always some around you.
+    const Vector shift = Scale(lab.carVel, -dt);
+    auto wrap = [](float v) { return v > kDustBox ? v - 2.f * kDustBox : v < -kDustBox ? v + 2.f * kDustBox : v; };
+    for (Vector& d : labDust)
+    {
+        d = Add(d, shift);
+        d = V(wrap(d.X), wrap(d.Y), wrap(d.Z));
+    }
+
+    // ---- the ball, where it is relative to you ----
+    BallWrapper ball = server.GetBall();
+    if (!ball.IsNull())
+    {
+        Vector rel = lab.ballPos;
+        if (!OnSpaceMap()) // the standard field has walls, a floor and a roof: keep it inside
+        {
+            float l = Len(rel), lim = ArenaLimit(pinLocation, Norm(rel));
+            if (l > lim) rel = Scale(Norm(rel), lim);
+        }
+        ball.SetLocation(Add(pinLocation, rel));
+        ball.SetVelocity(V(0.f, 0.f, 0.f));
+        ball.SetAngularVelocity(V(0.f, 0.f, 0.f), false);
+    }
+}
+
+void AirLabs::DrawLab(CanvasWrapper& canvas, const Vector2& screen)
+{
+    const float speed = Len(lab.carVel);
+    CameraWrapper cam = gameWrapper->GetCamera();
+    if (!cam.IsNull())
+    {
+        const Vector camLoc = cam.GetLocation();
+        const Rotator cr = cam.GetRotation();
+        const Basis cb = BasisFromRotator(cr.Pitch, cr.Yaw, cr.Roll);
+        auto inFront = [&](const Vector& w) { return Dot(Sub(w, camLoc), cb.forward) > 20.f; };
+        auto onScreen = [&](const Vector& w, Vector2F& out) {
+            if (!inFront(w)) return false;
+            out = canvas.ProjectF(w);
+            return out.X >= 0.f && out.Y >= 0.f && out.X <= screen.X && out.Y <= screen.Y;
+        };
+        auto circle = [&](Vector2F c, float r, float thick) {
+            const int seg = 28;
+            for (int i = 0; i < seg; ++i)
+            {
+                float a0 = 2.f * kPi * i / seg, a1 = 2.f * kPi * (i + 1) / seg;
+                canvas.DrawLine(Vector2F{ c.X + std::cos(a0) * r, c.Y + std::sin(a0) * r }, Vector2F{ c.X + std::cos(a1) * r, c.Y + std::sin(a1) * r }, thick);
+            }
+        };
+
+        // ---- dust: specks streaking past, so you can see you're moving ----
+        const float streak = std::min(0.06f, 0.03f + speed / 60000.f); // seconds of movement each streak shows
+        for (const Vector& d : labDust)
+        {
+            const float fade = std::clamp(1.f - Len(d) / kDustBox, 0.f, 1.f);
+            if (fade <= 0.02f) continue;
+            const Vector w = Add(pinLocation, d);
+            const Vector tail = Add(w, Scale(lab.carVel, streak)); // where it was a moment ago
+            if (!inFront(w) || !inFront(tail)) continue;
+            Vector2F a = canvas.ProjectF(w), t = canvas.ProjectF(tail);
+            canvas.SetColor(LinearColor(200.f, 220.f, 255.f, 40.f + 170.f * fade));
+            if (speed < 40.f) { canvas.SetPosition(Vector2F{ a.X - 1.f, a.Y - 1.f }); canvas.FillBox(Vector2F{ 2.f, 2.f }); }
+            else canvas.DrawLine(a, t, 1.5f + fade);
+        }
+
+        // ---- where you're drifting (circle with three ticks) and the opposite way (circle with an X) ----
+        if (speed > 50.f)
+        {
+            const Vector dir = Scale(lab.carVel, 1.f / speed);
+            Vector2F m;
+            if (onScreen(Add(pinLocation, Scale(dir, 1500.f)), m))
+            {
+                canvas.SetColor(LinearColor(90.f, 230.f, 255.f, 235.f));
+                circle(m, 11.f, 2.f);
+                canvas.DrawLine(Vector2F{ m.X, m.Y - 11.f }, Vector2F{ m.X, m.Y - 20.f }, 2.f);
+                canvas.DrawLine(Vector2F{ m.X - 11.f, m.Y }, Vector2F{ m.X - 20.f, m.Y }, 2.f);
+                canvas.DrawLine(Vector2F{ m.X + 11.f, m.Y }, Vector2F{ m.X + 20.f, m.Y }, 2.f);
+                canvas.SetPosition(Vector2F{ m.X - 18.f, m.Y + 16.f });
+                canvas.DrawString(Fmt("%.0f", speed), 1.f, 1.f, true);
+            }
+            if (onScreen(Add(pinLocation, Scale(dir, -1500.f)), m))
+            {
+                canvas.SetColor(LinearColor(90.f, 230.f, 255.f, 150.f));
+                circle(m, 11.f, 2.f);
+                canvas.DrawLine(Vector2F{ m.X - 7.f, m.Y - 7.f }, Vector2F{ m.X + 7.f, m.Y + 7.f }, 2.f);
+                canvas.DrawLine(Vector2F{ m.X + 7.f, m.Y - 7.f }, Vector2F{ m.X - 7.f, m.Y + 7.f }, 2.f);
+            }
+        }
+
+        // ---- the ball: a ring around it, or an arrow at the screen's edge when it's off screen ----
+        const Vector ballW = Add(pinLocation, lab.ballPos);
+        LinearColor ringCol = lab.phase == kLabHang ? kColWarn : lab.phase == kLabTouched ? kColGood : LinearColor(255.f, 255.f, 255.f, 200.f);
+        if (gameTime - labTouchFlash < 0.35) ringCol = kColGood;
+        Vector2F bc;
+        if (onScreen(ballW, bc))
+        {
+            Vector2F e = canvas.ProjectF(Add(ballW, Scale(cb.right, kLabBallRadius + 12.f)));
+            float r = std::clamp(std::sqrt((e.X - bc.X) * (e.X - bc.X) + (e.Y - bc.Y) * (e.Y - bc.Y)), 8.f, 500.f);
+            if (lab.phase == kLabHang) r *= 1.f + 0.12f * static_cast<float>(std::sin(gameTime * 12.0)); // pulses while it waits
+            canvas.SetColor(ringCol);
+            circle(bc, r, 2.5f);
+        }
+        else
+        {
+            Vector rel = Sub(ballW, camLoc);
+            float x = Dot(rel, cb.right), y = -Dot(rel, cb.up); // screen y grows downwards
+            float l = std::sqrt(x * x + y * y);
+            if (l < 1e-3f) { x = 0.f; y = 1.f; l = 1.f; }
+            x /= l; y /= l;
+            const float cx = screen.X * 0.5f, cy = screen.Y * 0.5f, rx = screen.X * 0.42f, ry = screen.Y * 0.40f;
+            Vector2F tip{ cx + x * rx, cy + y * ry };
+            Vector2F side{ -y * 11.f, x * 11.f };
+            Vector2F base{ tip.X - x * 22.f, tip.Y - y * 22.f };
+            canvas.SetColor(ringCol);
+            canvas.DrawLine(tip, Vector2F{ base.X + side.X, base.Y + side.Y }, 3.f);
+            canvas.DrawLine(tip, Vector2F{ base.X - side.X, base.Y - side.Y }, 3.f);
+            canvas.DrawLine(Vector2F{ base.X + side.X, base.Y + side.Y }, Vector2F{ base.X - side.X, base.Y - side.Y }, 3.f);
+        }
+    }
+
+    // ---- panel ----
+    std::vector<HudLine> L;
+    auto add = [&](const std::string& t, const LinearColor& c = kColText, float sc = 1.3f) { L.push_back({ t, c, sc }); };
+    const LabParams p = LabParamsNow();
+    add(std::string("BOOST LAB (TEST)  |  ") + (p.motion == kLabConstant ? "Constant" : "Respawn"), kColTitle, 1.4f);
+    add(Fmt("Your speed   %.0f uu/s", speed) + (labBoosting ? "   BOOST" : ""), labBoosting ? kColWarn : kColText);
+    add(Fmt("Ball         %.0f uu away", Len(lab.ballPos)) + Fmt(", %.0f uu/s as you see it", Len(LabRelVel(lab))));
+    add(p.motion == kLabConstant ? Fmt("Touches  %.0f", lab.touches) : Fmt("Touches  %.0f", lab.touches) + Fmt("    Got away  %.0f", lab.misses));
+    if (lab.touches > 0) add(Fmt("Last touch: closing at %.0f uu/s", lab.lastClosing), kColDim, 1.15f);
+    add("Hold boost to fly. Let go and you keep drifting.", kColDim, 1.05f);
+    add(menuKey.empty() ? "Stop: the AirLabs window, or airlabs_lab" : "Stop: " + menuKey + " for the menu", kColDim, 1.05f);
+    const int w = 460, x = 30, y = static_cast<int>(screen.Y * 0.12f);
+    FillRect(canvas, x - 12, y - 10, w, LinesHeight(L) + 16, kColPanel);
+    DrawLines(canvas, x, y, L);
+
+    // ---- flashes ----
+    auto centred = [&](const std::string& t, const LinearColor& c, float scale, int yy) {
+        Vector2F sz = canvas.GetStringSize(t, scale, scale);
+        canvas.SetColor(c);
+        canvas.SetPosition(Vector2F{ (screen.X - sz.X) * 0.5f, static_cast<float>(yy) });
+        canvas.DrawString(t, scale, scale, true);
+    };
+    if (gameTime - labTouchFlash < 0.5) centred(Fmt("TOUCH  %.0f uu/s", lab.lastClosing), kColGood, 2.2f, static_cast<int>(screen.Y * 0.22f));
+    else if (gameTime - labMissFlash < 0.7) centred("GOT AWAY", kColBad, 2.2f, static_cast<int>(screen.Y * 0.22f));
 }
 
 // ===========================================================================
@@ -2119,7 +2398,9 @@ void AirLabs::DrawLaser(CanvasWrapper& canvas)
     // How far it reaches: to the ball's distance (so its tip touches the ball when you're on it),
     // or the Laser length setting.
     float len = *laserLength;
-    if (laserToBall && *laserToBall)
+    if (laserToBall && *laserToBall && labOn)
+        len = Len(lab.ballPos);
+    else if (laserToBall && *laserToBall)
         len = state == RunState::Replay ? play.distance : hasTarget ? Len(Sub(targetLocation, pinLocation)) : CurrentSettings().distance;
     Vector b = Add(carLoc, Scale(dir, std::max(len, aim == 1 ? 60.f : 110.f)));
 
@@ -2286,6 +2567,11 @@ void AirLabs::Render(CanvasWrapper canvas)
     if (!gameWrapper->IsInFreeplay()) return;
     if (*laserEnabled) DrawLaser(canvas);
     Vector2 screen = canvas.GetSize();
+    if (labOn)
+    {
+        DrawLab(canvas, screen);
+        return;
+    }
     if (*readout) DrawReadout(canvas, screen);
     if (state == RunState::Idle)
     {
