@@ -29,6 +29,7 @@ add_library(AirLabs SHARED
   "${SRC}/TrainerCore.h"
   "${SRC}/BoostLab.h"
   "${SRC}/LabWorld.h"
+  "${SRC}/RedirectRing.h"
   "${SRC}/EmbeddedFonts.h"
   "${SRC}/imgui/imgui.cpp"
   "${SRC}/imgui/imgui_draw.cpp"

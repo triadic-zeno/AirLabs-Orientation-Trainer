@@ -2,6 +2,7 @@
 // Build (compiles RocketSim too, about a minute):
 //   g++ -std=c++20 -O2 -w -IAirLabs tools/labworld_test.cpp $(find thirdparty/RocketSim -name "*.cpp") -o labworld_test
 #include <cstdio>
+#include <chrono>
 struct Vector { float X, Y, Z; };
 #include "TrainerCore.h"
 #include "BoostLab.h"
@@ -41,6 +42,126 @@ static HitResult Hit(std::mt19937& rng, Vector rel, float carSpeed)
 int main()
 {
     std::mt19937 rng(11);
+
+    // Respawn defaults: full radial range survives even a restrictive floor/height band.
+    {
+        LabParams p;
+        p.spawnMin = 1500.f; p.spawnMax = 2000.f; p.bubble = 2060.f; p.floor = 300.f;
+        p.heightMin = -90.f; p.heightMax = -60.f; // deliberately impossible above this floor
+        for (int i = 0; i < 500; ++i)
+        {
+            const Vector point = LabSpawnPoint(rng, p, V(1.f, 0.f, 0.f));
+            CHECK(Len(point) >= 1499.9f && Len(point) <= 2000.1f, "spawn outside 1500-2000: %.1f", Len(point));
+            CHECK(point.Z >= -(p.floor - kLabBallRadius) - 0.1f, "spawn below floor");
+        }
+        CHECK(std::fabs(p.hangSec - 1.25f) < 0.001f, "wait default should be 1.25 s");
+        CHECK(LabRingCrossed(V(-10.f, 0.f, 0.f), V(10.f, 0.f, 0.f), V(0.f, 0.f, 0.f), V(1.f, 0.f, 0.f), 350.f), "centre crossing missed");
+        CHECK(!LabRingCrossed(V(-10.f, 300.f, 0.f), V(10.f, 300.f, 0.f), V(0.f, 0.f, 0.f), V(1.f, 0.f, 0.f), 350.f), "ball clipped ring edge but scored");
+        CHECK(!LabRingCrossed(V(10.f, 0.f, 0.f), V(-10.f, 0.f, 0.f), V(0.f, 0.f, 0.f), V(1.f, 0.f, 0.f), 350.f), "reverse crossing scored");
+    }
+
+    // A generated target is backed by a RocketSim touch and a gravity/drag-aware flight.
+    {
+        int checked = 0, modest = 0, crossed = 0;
+        float worstMs = 0.f;
+        for (int sample = 0; sample < 24; ++sample)
+        {
+            LabParams p;
+            p.spawnMin = 1500.f; p.spawnMax = 2000.f; p.bubble = 2060.f;
+            p.floor = 300.f; p.steep = 45.f; p.speed = sample % 3 == 0 ? 400.f : sample % 3 == 1 ? 800.f : 1400.f;
+            p.ringRelativeMotion = sample % 2 == 0;
+            LabWorld w;
+            const auto start = std::chrono::steady_clock::now();
+            w.Start(p, Facing(V(1.f, 0.f, 0.f)), kOctane, rng, 0.0);
+            worstMs = std::max(worstMs, std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count());
+            CHECK(w.s.ringActive, "new Respawn ball has no ring");
+            const auto plan = w.redirectPlan;
+            if (!plan.checked || plan.turn < 15.f || plan.turn > 40.f)
+                std::printf("  redirect sample %d: checked %d turn %.1f, speed %.0f\n", sample, (int)plan.checked, plan.turn, p.speed);
+            if (!plan.checked) continue;
+            ++checked;
+            if (plan.turn >= 15.f && plan.turn <= 40.f) ++modest;
+            const float distance = plan.distance;
+            CHECK(distance >= 800.f && distance <= 1200.f, "redirect target distance %.1f", distance);
+            std::unique_ptr<RocketSim::Arena> replay(RocketSim::Arena::Create(RocketSim::GameMode::THE_VOID));
+            auto m = replay->GetMutatorConfig();
+            m.boostUsedPerSecond = 0.f;
+            replay->SetMutatorConfig(m);
+            auto* car = replay->AddCar(RocketSim::Team::BLUE, RocketSim::CAR_CONFIG_OCTANE);
+            RocketSim::CarState cs;
+            cs.pos = ToRs(plan.carPos); cs.vel = ToRs(plan.carVel); cs.isOnGround = false;
+            cs.rotMat = RocketSim::RotMat(ToRs(plan.carBasis.forward), ToRs(plan.carBasis.right), ToRs(plan.carBasis.up));
+            car->SetState(cs);
+            RocketSim::BallState bs;
+            bs.pos = ToRs(plan.ballPos); bs.vel = ToRs(plan.ballVel);
+            replay->ball->SetState(bs);
+            bool goal = false, hit = false;
+            for (int i = 0; i < 300; ++i)
+            {
+                const Vector before = FromRs(replay->ball->GetState().pos);
+                const Vector carBefore = FromRs(car->GetState().pos);
+                replay->Step(1);
+                hit = hit || car->GetState().ballHitInfo.isValid;
+                if (hit && LabRingCrossed(p.ringRelativeMotion ? before : Sub(before, carBefore),
+                    p.ringRelativeMotion ? FromRs(replay->ball->GetState().pos) : FromRs(replay->ball->GetState().pos - car->GetState().pos),
+                    plan.goal, plan.normal, 350.f)) { goal = true; break; }
+            }
+            if (goal) ++crossed;
+        }
+        std::printf("redirect plans: checked %d/24, modest %d, replayed goals %d, worst setup %.1f ms\n", checked, modest, crossed, worstMs);
+        CHECK(checked >= 22 && modest >= 22, "too few solver-checked modest redirects");
+        CHECK(crossed == checked, "a planned touch did not reach its ring");
+    }
+
+    // Ring motion and its toggle use the same coordinates as the visible target.
+    {
+        LabParams p;
+        p.speedLimit = false;
+        p.hangSec = 3.f;
+        LabWorld w;
+        w.Start(p, Facing(V(1.f, 0.f, 0.f)), kOctane, rng, 0.0);
+        const Vector world = Add(w.s.ringPos, FromRs(w.GetCarState().pos));
+        for (int i = 0; i < 30; ++i) w.Step(p, LabControls{}, rng, i * kTick);
+        CHECK(Len(Sub(Add(w.s.ringPos, FromRs(w.GetCarState().pos)), world)) < 0.1f, "relative ring moved in hidden world");
+        const Vector displayed = w.s.ringPos;
+        p.ringRelativeMotion = false;
+        w.Step(p, LabControls{}, rng, 30 * kTick);
+        CHECK(Len(Sub(w.s.ringPos, displayed)) < 0.1f, "switching to fixed ring jumped");
+        for (int i = 31; i < 60; ++i) w.Step(p, LabControls{}, rng, i * kTick);
+        CHECK(Len(Sub(w.s.ringPos, displayed)) < 0.1f, "fixed ring did not keep its car offset");
+        p.redirectRing = false;
+        w.Step(p, LabControls{}, rng, 60 * kTick);
+        CHECK(!w.s.ringActive, "ring toggle did not disable it");
+    }
+
+    // Both ring-motion choices score once, after a touch, in the displayed coordinates.
+    for (bool relative : { false, true })
+    {
+        LabParams p;
+        p.speedLimit = false; p.ringRelativeMotion = relative; p.bubble = 10000.f;
+        LabWorld w;
+        w.Start(p, Facing(V(1.f, 0.f, 0.f)), kOctane, rng, 0.0);
+        const Vector normal = w.s.ringNormal;
+        const Vector cv = V(500.f, 0.f, 0.f);
+        w.Place(Sub(w.s.ringPos, Scale(normal, 10.f)), Add(cv, Scale(normal, 2400.f)), cv);
+        w.s.phase = kLabTouched; w.s.phaseEnd = 4.0; w.s.lastTouch = 0.0;
+        w.Step(p, LabControls{}, rng, 0.0);
+        CHECK(w.s.ringScoredNow && w.s.redirects == 1, "visible goal did not score (motion %d)", (int)relative);
+        w.Step(p, LabControls{}, rng, kTick);
+        CHECK(!w.s.ringScoredNow && w.s.redirects == 1, "same goal scored twice");
+    }
+
+    // Respawn must ignore curve even if a stored Volley curve is nonzero.
+    {
+        LabParams p;
+        p.redirectRing = false; p.curve = 120.f; p.speedLimit = false; p.bubble = 5000.f;
+        LabWorld w;
+        w.Start(p, Facing(V(1.f, 0.f, 0.f)), kOctane, rng, 0.0);
+        w.Place(V(2000.f, 0.f, 0.f), V(0.f, 400.f, 0.f), V(0.f, 0.f, 0.f));
+        w.s.free = true;
+        for (int i = 0; i < 60; ++i) w.Step(p, LabControls{}, rng, i * kTick);
+        CHECK(std::fabs(w.s.ballVel.X) < 0.01f && std::fabs(w.s.ballVel.Y - 400.f) < 0.1f, "Respawn curve remained active");
+    }
 
     // ---- normal gravity reaches both bodies, including the launch countdown ----
     for (int waiting = 0; waiting < 2; ++waiting)

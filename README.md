@@ -433,12 +433,24 @@ pitches at 2.4 rad/s; off the front corner the ball leaves at 1802, 1076 of it s
   ball has its own velocity, and is drawn where it is relative to you. Gravity pulls the car and
   the ball down at 650 uu/s². Their individual speeds still matter for flips, speed limits and ball
   drag, so gravity is simulated even though your visible car stays pinned.
-- **The bubble.** The ball always stays within the bubble around your car (Short 500, Medium 800,
-  Long 1200 uu, or any size up to 2000). On the standard field it also stops at the floor, walls and roof.
-- **Respawn:** a new ball appears in the bubble (within the angle of your nose and the height band
-  you set), waits 0.75 s with an arrow showing where it'll go, then launches that way. Touch it and
-  a new ball appears 0.6 s later; one that reaches the edge untouched got away. Your speed resets
-  with each new ball.
+- **The bubble.** In Constant, pick Short 500, Medium 800, Long 1200 uu or a radius up to 2000.
+  Respawn's boundary expands to fit its spawn range. On the standard field the displayed ball is
+  also limited by the arena floor, walls and roof; the large spawn range is best used on the space map.
+- **Respawn:** new balls appear **1500–2000 uu away** by default (Nearest/Farthest spawn change
+  the range), within your nose cone and height band. They wait **1.25 s**, then launch with no curve.
+  Your speed resets with each new ball. Without a ring, a new ball comes 1.5 s after the last touch.
+- **Redirect ring (Respawn, on by default):** a target appears with each ball. It is planned from
+  the pass's position, speed and direction, with an estimated reachable meeting point. RocketSim
+  checks a glancing touch and the ball's outgoing flight under gravity and drag, looking for a
+  15–40 degree redirect to a ring about 1000 uu beyond the contact. The ring's radius is 350 uu;
+  the whole ball must fit through after a touch to score. The ring turns green and the HUD counts
+  redirects. A touched ball has up to 3.5 s after the latest touch to reach it, with boundary/floor
+  replacement suspended during the shot. Restrictive settings may use a simpler fallback target;
+  the approach is an estimate, not a guarantee that every flight path is reachable.
+- **Ring motion (separate toggle):** ON keeps the ring fixed in the hidden world and shows it
+  relative to your moving car, like the ball. OFF keeps the ring at the same offset from your car.
+  Scoring follows the selected motion. Switching preserves its displayed position. Both the ring
+  and its motion have their own switches, so either behaviour can be tested.
 - **Constant:** the ball never stops. At the edge of the bubble (or the floor) it bounces back
   inwards, and each bounce is a fresh start like a new ball: it comes back at the set speed and
   your own speed resets. (Earlier, your hidden speed stayed at the 2300 cap, so boosting at the
@@ -478,7 +490,7 @@ pitches at 2.4 rad/s; off the front corner the ball leaves at 1802, 1076 of it s
   at least the pass distance (250 uu) from your car's centre and crosses at least a bubble radius
   of the bubble. From the edge that's 18-60 degrees off straight in.
 - **Ball speed:** Slow 400, Medium 800, Fast 1400 uu/s, any speed, or Dynamic (a random speed for
-  each launch or bounce). **Curve:** a ball flying on its own turns at this many degrees a second,
+  each launch or bounce). **Curve (Constant only):** a ball flying on its own turns at this many degrees a second,
   picking a new way to curve every second. **Run length:** a run ends after this long (boost to go again).
 - **On screen:** green markers show where you're heading relative to the ball (on the ball = you'll
   hit it) and the opposite way (boost there to slow down). A waiting ball has a ring (yellow and
@@ -539,7 +551,10 @@ PC clock if it ever looks wrong; the Readout shows which is in use.
 | `airlabs_lab_flips 0` / `1` / `2` | Boost Lab flips: off / real (default) / infinite |
 | `airlabs_lab_speed_limit 1` / `0` | Boost Lab speed limits and ball drag on (default) / off; gravity stays on |
 | `airlabs_lab_keep_flip_drift 1` / `0` | Volley test: keep vertical drift through flips (default) / normal flip braking; ignored in Respawn |
-| `airlabs_lab_markers`, `airlabs_lab_navball`, `airlabs_lab_dust` (1 / 0) | Boost Lab: relative markers (on), navball (off), dust (off) |
+| `airlabs_lab_markers`, `airlabs_lab_navball`, `airlabs_lab_dust` (1 / 0) | Boost Lab: relative markers, navball, dust (all off by default) |
+| `airlabs_lab_spawn_min`, `airlabs_lab_spawn_max` | Respawn spawn range in uu (1500–2000 by default) |
+| `airlabs_lab_redirect_ring 1` / `0` | Respawn target ring on (default) / off |
+| `airlabs_lab_ring_motion 1` / `0` | Ring fixed in hidden world (default) / fixed offset from car |
 | `airlabs_lab_botprobe` | Test: spawn a bot car and hold it next to you for 20 s |
 | `airlabs_watch <run>` | Watch a leaderboard run's replay (the number is the run's id on the server) |
 | `airlabs_lb_url <url>` | The leaderboard server (only change this for a server of your own) |

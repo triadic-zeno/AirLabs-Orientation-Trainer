@@ -486,10 +486,13 @@ void AirLabs::RegisterCvars()
     lbPost = mkB(true); lbUrl = std::make_shared<std::string>(kLeaderboardUrl);
     lbCustomName = std::make_shared<std::string>();
     showTips = mkB(true);
-    labMotion = mkI(kLabRespawn); labBubble = mkF(800.f); labPass = mkF(250.f); labSpeed = mkF(800.f); labHang = mkF(0.75f);
+    labMotion = mkI(kLabRespawn); labBubble = mkF(800.f); labPass = mkF(250.f); labSpeed = mkF(800.f); labHang = mkF(1.25f);
+    labSpawnMin = mkF(1500.f); labSpawnMax = mkF(2000.f);
     labSpeedMin = mkF(400.f); labSpeedMax = mkF(1400.f); labCurve = mkF(0.f); labRun = mkF(0.f); labCone = mkF(180.f);
     labHeightMin = mkF(-90.f); labHeightMax = mkF(90.f); labSteep = mkF(45.f); labFloor = mkF(300.f);
-    labDynamic = mkB(false); labDust = mkB(false); labMarkers = mkB(true); labNavball = mkB(false); labSpeedLimit = mkB(true); labKeepFlipDrift = mkB(true); labFlips = mkI(kLabFlipsReal); labDebug = mkB(true);
+    labDynamic = mkB(false); labDust = mkB(false); labMarkers = mkB(false); labNavball = mkB(false); labSpeedLimit = mkB(true); labKeepFlipDrift = mkB(true); labFlips = mkI(kLabFlipsReal); labDebug = mkB(true);
+    labRedirectRing = mkB(true);
+    labRingMotion = mkB(true);
 
     reg("airlabs_mode", "1", "0 = Flick, 1 = Track (default), 2 = Hybrid, 3 = Chase", 0.f, static_cast<float>(kModeCount - 1)).bindTo(mode);
     reg("airlabs_preset_flick", "4", "Flick preset (last = Custom)", 0.f, maxIdx(kFlick)).bindTo(presetFlick);
@@ -548,6 +551,8 @@ void AirLabs::RegisterCvars()
     // Boost Lab (test)
     reg("airlabs_lab_motion", "0", "Boost Lab: 0 = Respawn (touch it and a new ball appears), 1 = Constant (the ball never stops)", 0.f, 1.f).bindTo(labMotion);
     reg("airlabs_lab_bubble", "800", "Boost Lab: radius of the bubble around your car that the ball stays in (uu)", 300.f, 2000.f).bindTo(labBubble);
+    reg("airlabs_lab_spawn_min", "1500", "Boost Lab, Respawn: nearest ball spawn distance (uu)", 300.f, 3000.f).bindTo(labSpawnMin);
+    reg("airlabs_lab_spawn_max", "2000", "Boost Lab, Respawn: farthest ball spawn distance (uu)", 300.f, 3000.f).bindTo(labSpawnMax);
     reg("airlabs_lab_pass", "250", "Boost Lab: the closest a launched or bounced ball's path comes to your car (uu)", 0.f, 600.f).bindTo(labPass);
     reg("airlabs_lab_speed", "800", "Boost Lab: the ball's speed after a launch or bounce, as you see it (uu/s)", 100.f, 2300.f).bindTo(labSpeed);
     reg("airlabs_lab_dynamic", "0", "Boost Lab: a random ball speed for each launch or bounce, between airlabs_lab_speed_min and _max", 0.f, 1.f).bindTo(labDynamic);
@@ -562,12 +567,14 @@ void AirLabs::RegisterCvars()
     reg("airlabs_lab_floor", "300", "Boost Lab: how far below your car the ball can go; it bounces off this floor (uu, 2000 = no floor)", 100.f, 2000.f).bindTo(labFloor);
     reg("airlabs_lab_speed_limit", "1", "Boost Lab: normal speed limits (car 2300, ball 6000) and ball air drag; gravity stays on", 0.f, 1.f).bindTo(labSpeedLimit);
     reg("airlabs_lab_keep_flip_drift", "1", "Volley test: keep vertical drift through flips (0: normal match flip braking); ignored in Respawn", 0.f, 1.f).bindTo(labKeepFlipDrift);
+    reg("airlabs_lab_redirect_ring", "1", "Boost Lab, Respawn: a target ring for each pass; redirect a touched ball through it", 0.f, 1.f).bindTo(labRedirectRing);
+    reg("airlabs_lab_ring_motion", "1", "Respawn ring motion: 1 = fixed in the hidden world, 0 = fixed offset from your car", 0.f, 1.f).bindTo(labRingMotion);
     reg("airlabs_lab_flips", "1", "Boost Lab flips: 0 = off, 1 = real (one for each new ball, one for each flip reset), 2 = infinite", 0.f, 2.f).bindTo(labFlips);
     reg("airlabs_lab_debug", "1", "Boost Lab: a debug line on the HUD (jump presses, flips, flip resets, what the game says)", 0.f, 1.f).bindTo(labDebug);
     reg("airlabs_lab_dust", "0", "Boost Lab: specks of dust that streak past as you move", 0.f, 1.f).bindTo(labDust);
-    reg("airlabs_lab_markers", "1", "Boost Lab: markers for how you're moving relative to the ball (on it = you'll hit it)", 0.f, 1.f).bindTo(labMarkers);
+    reg("airlabs_lab_markers", "0", "Boost Lab: markers for how you're moving relative to the ball (on it = you'll hit it)", 0.f, 1.f).bindTo(labMarkers);
     reg("airlabs_lab_navball", "0", "Boost Lab: navball (your orientation, the ball and the markers, all the way round)", 0.f, 1.f).bindTo(labNavball);
-    reg("airlabs_lab_hang", "0.75", "Boost Lab, Respawn: how long a new ball waits before it launches (s)", 0.f, 3.f).bindTo(labHang);
+    reg("airlabs_lab_hang", "1.25", "Boost Lab, Respawn: how long a new ball waits before it launches (s)", 0.f, 3.f).bindTo(labHang);
 
     // Leaderboard
     cvarManager->registerCvar("airlabs_lb_name", "", "The name shown on the leaderboard (blank = your Rocket League name)", true, false, 0.f, false, 0.f, true).bindTo(lbCustomName);
@@ -1605,8 +1612,14 @@ LabParams AirLabs::LabParamsNow() const
     p.dynamic = *labDynamic;
     p.speedMin = std::clamp(*labSpeedMin, 100.f, 2300.f);
     p.speedMax = std::clamp(*labSpeedMax, 100.f, 2300.f);
-    p.curve = std::clamp(*labCurve, 0.f, 120.f);
+    p.curve = p.motion == kLabRespawn ? 0.f : std::clamp(*labCurve, 0.f, 120.f);
     p.hangSec = std::clamp(*labHang, 0.f, 3.f);
+    if (p.motion == kLabRespawn)
+    {
+        p.spawnMin = std::clamp(std::min(*labSpawnMin, *labSpawnMax), 300.f, 3000.f);
+        p.spawnMax = std::clamp(std::max(*labSpawnMin, *labSpawnMax), 300.f, 3000.f);
+        p.bubble = std::max(p.bubble, p.spawnMax + 60.f); // the full spawn range fits inside the boundary
+    }
     p.spawnCone = std::clamp(*labCone, 10.f, 180.f);
     p.heightMin = std::clamp(*labHeightMin, -90.f, 90.f);
     p.heightMax = std::clamp(*labHeightMax, -90.f, 90.f);
@@ -1615,6 +1628,8 @@ LabParams AirLabs::LabParamsNow() const
     p.floor = *labFloor >= 1999.f ? 5000.f : std::clamp(*labFloor, 100.f, 2000.f);
     p.speedLimit = *labSpeedLimit;
     p.keepFlipDrift = *labKeepFlipDrift;
+    p.redirectRing = *labRedirectRing;
+    p.ringRelativeMotion = *labRingMotion;
     p.flips = std::clamp(*labFlips, 0, 2);
     return p;
 }
@@ -1740,7 +1755,7 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
         std::uniform_real_distribution<float> u(-kDustBox, kDustBox);
         labSpecks.clear();
         for (int i = 0; i < kDustCount; ++i) labSpecks.push_back(V(u(rng), u(rng), u(rng)));
-        labTouchFlash = labMissFlash = labResetFlash = -10.0;
+        labTouchFlash = labMissFlash = labResetFlash = labGoalFlash = -10.0;
         labJumpPresses = 0;
         labHavePlaced = false;
         labGameMovedBall = labGameTurnedCar = labBallJumps = 0;
@@ -1750,7 +1765,7 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
     if (lab.phase == kLabDone && in.boost && gameTime - lab.runEnd > 1.0)
     {
         labWorld.Start(p, labWorld.CarBasis(), V(118.f, 84.2f, 36.16f), rng, gameTime);
-        labTouchFlash = labMissFlash = labResetFlash = -10.0;
+        labTouchFlash = labMissFlash = labResetFlash = labGoalFlash = -10.0;
     }
 
     // ---- RocketSim runs at 120 ticks a second, like the game: one step per physics tick ----
@@ -1796,6 +1811,7 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
         if (labWorld.s.touchedNow) labTouchFlash = gameTime;
         if (labWorld.s.missedNow) labMissFlash = gameTime;
         if (labWorld.resetNow) labResetFlash = gameTime;
+        if (labWorld.s.ringScoredNow) labGoalFlash = gameTime;
     }
     lab = labWorld.s;
 
@@ -1906,6 +1922,42 @@ void AirLabs::DrawLab(CanvasWrapper& canvas, const Vector2& screen)
             return out.X >= 0.f && out.Y >= 0.f && out.X <= screen.X && out.Y <= screen.Y;
         };
 
+        // The goal has a fixed hidden-world position. Mirror it relative to the moving car,
+        // exactly like the ball, rather than attaching it to the screen or the ball.
+        if (lab.ringActive && lab.phase != kLabDone)
+        {
+            const Vector centre = Add(pinLocation, lab.ringPos);
+            const Basis plane = LabFacing(lab.ringNormal);
+            canvas.SetColor(lab.ringScored ? kColGood : kColTitle);
+            for (int i = 0; i < 64; ++i)
+            {
+                auto point = [&](int n) {
+                    const float a = 2.f * kPi * n / 64.f;
+                    return Add(centre, Scale(Add(Scale(plane.right, std::cos(a)), Scale(plane.up, std::sin(a))), lab.ringRadius));
+                };
+                const Vector a = point(i), b = point(i + 1);
+                if (inFront(a) && inFront(b)) canvas.DrawLine(canvas.ProjectF(a), canvas.ProjectF(b), 3.f);
+            }
+            Vector2F label;
+            if (onScreen(centre, label))
+            {
+                canvas.SetPosition(Vector2F{ label.X - 35.f, label.Y - 12.f });
+                canvas.DrawString(lab.ringScored ? "GOAL" : "REDIRECT", 1.f, 1.f, true);
+            }
+            else
+            {
+                const Vector toward = Sub(centre, camLoc);
+                float x = Dot(toward, cb.right), y = -Dot(toward, cb.up);
+                const float l = std::sqrt(x * x + y * y);
+                if (l > 1.f)
+                {
+                    const Vector2F edge{ screen.X * (0.5f + 0.40f * x / l), screen.Y * (0.5f + 0.37f * y / l) };
+                    canvas.SetPosition(edge);
+                    canvas.DrawString("RING", 1.f, 1.f, true);
+                }
+            }
+        }
+
         // ---- dust (optional): specks streaking past, so you can see your own movement ----
         if (*labDust)
         {
@@ -2005,6 +2057,7 @@ void AirLabs::DrawLab(CanvasWrapper& canvas, const Vector2& screen)
     auto add = [&](const std::string& t, const LinearColor& c = kColText, float sc = 1.3f) { L.push_back({ t, c, sc }); };
     const LabParams p = LabParamsNow();
     add(std::string("BOOST LAB (TEST)  |  ") + (p.motion == kLabConstant ? "Constant" : "Respawn"), kColTitle, 1.4f);
+    if (p.motion == kLabRespawn && p.redirectRing) add(Fmt("Redirects  %.0f", lab.redirects), kColTitle);
     if (lab.phase == kLabDone)
     {
         add("RUN OVER", kColGold, 1.6f);
@@ -2047,7 +2100,8 @@ void AirLabs::DrawLab(CanvasWrapper& canvas, const Vector2& screen)
         canvas.DrawString(t, scale, scale, true);
     };
     if (gameTime - labResetFlash < 0.8) centred("FLIP RESET", kColTitle, 2.2f, static_cast<int>(screen.Y * 0.28f));
-    if (gameTime - labTouchFlash < 0.5) centred(Fmt("TOUCH  %.0f uu/s", lab.lastClosing), kColGood, 2.2f, static_cast<int>(screen.Y * 0.22f));
+    if (gameTime - labGoalFlash < 0.8) centred("GOAL", kColGood, 2.2f, static_cast<int>(screen.Y * 0.22f));
+    else if (gameTime - labTouchFlash < 0.5) centred(Fmt("TOUCH  %.0f uu/s", lab.lastClosing), kColGood, 2.2f, static_cast<int>(screen.Y * 0.22f));
     else if (gameTime - labMissFlash < 0.7) centred("GOT AWAY", kColBad, 2.2f, static_cast<int>(screen.Y * 0.22f));
 }
 

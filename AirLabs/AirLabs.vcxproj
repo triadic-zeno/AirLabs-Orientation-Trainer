@@ -530,6 +530,7 @@
     <ClInclude Include="AirLabs.h" />
     <ClInclude Include="BoostLab.h" />
     <ClInclude Include="LabWorld.h" />
+    <ClInclude Include="RedirectRing.h" />
     <ClInclude Include="EmbeddedFonts.h" />
     <ClInclude Include="Replay.h" />
     <ClInclude Include="Tips.h" />

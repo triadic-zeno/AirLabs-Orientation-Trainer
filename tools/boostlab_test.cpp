@@ -1,6 +1,7 @@
 // Tests for AirLabs/BoostLab.h, run outside the game with a stand-in Vector type.
 // Build: g++ -std=c++20 -O2 -IAirLabs tools/boostlab_test.cpp -o boostlab_test
 #include <cstdio>
+#include <string>
 struct Vector { float X, Y, Z; };
 #include "TrainerCore.h"
 #include "BoostLab.h"

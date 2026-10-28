@@ -1683,23 +1683,42 @@ void AirLabs::WinLab()
             UiSliderF("Ball speed##lab", "How fast the ball moves after it launches or bounces. A ball never goes faster than you could actually reach it from where you are, so fast balls need a bigger bubble: in Medium (800) they top out around 870, in Long around 1000, at 2000 uu the full 1400.",
                       "airlabs_lab_speed", 100.f, 2300.f, "%.0f uu/s");
         }
-        UiSliderF("Curve##lab", "How fast the ball turns while it flies on its own (it picks a new way to curve every second). 0 = straight lines.",
-                  "airlabs_lab_curve", 0.f, 120.f, "%.0f deg/s");
+        if (p.motion == kLabConstant)
+            UiSliderF("Curve##lab", "How fast the ball turns while it flies on its own (it picks a new way to curve every second). 0 = straight lines.",
+                      "airlabs_lab_curve", 0.f, 120.f, "%.0f deg/s");
+        else
+        {
+            if (Chip("##labredirect", p.redirectRing ? "Redirect ring: ON" : "Redirect ring: OFF", p.redirectRing, bold))
+                SetCvarI("airlabs_lab_redirect_ring", p.redirectRing ? 0 : 1);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("A new ring for each pass. Redirect the ball through it.\nTurning it on adds a ring at the next waiting ball.");
+            ImGui::SameLine(0, 8);
+            if (Chip("##labringmotion", p.ringRelativeMotion ? "Ring motion: ON" : "Ring motion: OFF", p.ringRelativeMotion, bold))
+                SetCvarI("airlabs_lab_ring_motion", p.ringRelativeMotion ? 0 : 1);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("ON: a fixed target in the hidden world; it moves on screen relative to your flight.\nOFF: the ring stays at the same offset from your car.\nGoal detection follows the ring you see. Switching preserves its current position.");
+        }
     }
 
     // ---- where balls appear ----
     SectionLabel(small, "RANGE AND DIRECTIONS");
     {
-        static const struct { const char* name; float v; } ranges[3] = { { "Short", 500.f }, { "Medium", 800.f }, { "Long", 1200.f } };
-        for (int i = 0; i < 3; ++i)
+        if (p.motion == kLabRespawn)
         {
-            if (i) ImGui::SameLine(0, 8);
-            ImGui::PushID(10 + i);
-            if (Chip("##labrng", ranges[i].name, std::fabs(p.bubble - ranges[i].v) < 0.5f, bold, 34.f)) SetCvarF("airlabs_lab_bubble", ranges[i].v);
-            ImGui::PopID();
+            UiSliderF("Nearest spawn##lab", "New balls appear between the nearest and farthest spawn distance.", "airlabs_lab_spawn_min", 300.f, 3000.f, "%.0f uu");
+            UiSliderF("Farthest spawn##lab", "The boundary expands to fit the whole spawn range.", "airlabs_lab_spawn_max", 300.f, 3000.f, "%.0f uu");
         }
-        UiSliderF("Bubble radius##lab", "The ball always stays within this distance of your car. On the standard field it also stops at the floor, walls and roof (about 850 uu up or down); the space map has none.",
-                  "airlabs_lab_bubble", 300.f, 2000.f, "%.0f uu");
+        else
+        {
+            static const struct { const char* name; float v; } ranges[3] = { { "Short", 500.f }, { "Medium", 800.f }, { "Long", 1200.f } };
+            for (int i = 0; i < 3; ++i)
+            {
+                if (i) ImGui::SameLine(0, 8);
+                ImGui::PushID(10 + i);
+                if (Chip("##labrng", ranges[i].name, std::fabs(p.bubble - ranges[i].v) < 0.5f, bold, 34.f)) SetCvarF("airlabs_lab_bubble", ranges[i].v);
+                ImGui::PopID();
+            }
+            UiSliderF("Bubble radius##lab", "The ball always stays within this distance of your car. On the standard field it also stops at the floor, walls and roof (about 850 uu up or down); the space map has none.",
+                      "airlabs_lab_bubble", 300.f, 2000.f, "%.0f uu");
+        }
         UiSliderF("Around your nose##lab", "New balls appear within this angle of where your nose points. 180 = anywhere, 90 = never behind you.",
                   "airlabs_lab_cone", 10.f, 180.f, "%.0f deg");
         UiSliderF("Lowest##lab", "How far below (negative) or above the horizon a new ball can appear.", "airlabs_lab_height_min", -90.f, 90.f, "%.0f deg");
@@ -1735,7 +1754,12 @@ void AirLabs::WinLab()
         SetCvarF("airlabs_lab_steep", 45.f);
         SetCvarF("airlabs_lab_floor", 300.f);
         SetCvarF("airlabs_lab_run", 0.f);
-        SetCvarF("airlabs_lab_hang", 0.75f);
+        SetCvarF("airlabs_lab_hang", 1.25f);
+        SetCvarF("airlabs_lab_spawn_min", 1500.f);
+        SetCvarF("airlabs_lab_spawn_max", 2000.f);
+        SetCvarI("airlabs_lab_markers", 0);
+        SetCvarI("airlabs_lab_redirect_ring", 1);
+        SetCvarI("airlabs_lab_ring_motion", 1);
     }
 }
 

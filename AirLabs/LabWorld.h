@@ -27,6 +27,12 @@ namespace airlabs
 
     inline RocketSim::Vec ToRs(const Vector& v) { return RocketSim::Vec(v.X, v.Y, v.Z); }
     inline Vector FromRs(const RocketSim::Vec& v) { return V(v.x, v.y, v.z); }
+}
+
+#include "RedirectRing.h"
+
+namespace airlabs
+{
 
     class LabWorld
     {
@@ -38,6 +44,7 @@ namespace airlabs
         int flipResets = 0;
         bool resetNow = false;
         const char* carName = "Octane";
+        LabRedirectPlan redirectPlan; // planning witness for off-game checks, in hidden-world coordinates
 
         ~LabWorld() { Clear(); }
 
@@ -86,6 +93,7 @@ namespace airlabs
             s.runStart = now;
             s.runEnd = p.runSec > 0.f ? now + std::max(p.hangSec, 1.f) + p.runSec : 1e18;
             PlaceBall(s.ballPos, V(0.f, 0.f, 0.f));
+            MakeRedirect(p, rng, now);
             lastHitTick = car->GetState().ballHitInfo.tickCountWhenHit;
             wheelsOnBall = 0;
             flipResets = 0;
@@ -106,7 +114,7 @@ namespace airlabs
         void Step(const LabParams& p, const LabControls& in, std::mt19937& rng, double now)
         {
             using namespace RocketSim;
-            s.touchedNow = s.missedNow = false;
+            s.touchedNow = s.missedNow = s.ringScoredNow = false;
             resetNow = false;
             if (!arena || s.phase == kLabDone) return;
             if (now >= s.runEnd)
@@ -118,6 +126,15 @@ namespace airlabs
                 return;
             }
             ApplySettings(p);
+            if (p.motion != kLabRespawn || !p.redirectRing) s.ringActive = false;
+            else if (!s.ringActive && s.phase == kLabHang) MakeRedirect(p, rng, now);
+            if (s.ringActive && ringMovesRelative != p.ringRelativeMotion)
+            {
+                // Preserve the displayed position when changing the test option mid-attempt.
+                if (p.ringRelativeMotion) ringWorld = car->GetState().pos + ringAnchorRelative;
+                else ringAnchorRelative = ringWorld - car->GetState().pos;
+                ringMovesRelative = p.ringRelativeMotion;
+            }
 
             // ---- the lab's rules before the tick: a waiting ball launches, a free ball curves ----
             if (s.phase == kLabHang && now >= s.phaseEnd)
@@ -129,7 +146,7 @@ namespace airlabs
             }
             // While waiting, both bodies keep falling under gravity. Clearing the ball's
             // velocity each tick would hold it up while the car accelerates downward.
-            if (s.free && p.curve > 0.f && s.phase == kLabFlying) Curve(p, rng, now);
+            if (p.motion == kLabConstant && s.free && p.curve > 0.f && s.phase == kLabFlying) Curve(p, rng, now);
 
             // ---- the tick itself ----
             const Vector relPosBefore = s.ballPos;
@@ -144,6 +161,8 @@ namespace airlabs
             c.ClampFix();
             car->controls = c;
             const bool onBallBefore = car->GetState().isOnGround;
+            const Vector ballWorldBefore = FromRs(arena->ball->GetState().pos);
+            const Vector carWorldBefore = FromRs(car->GetState().pos);
             arena->Step(1);
 
             // ---- what happened ----
@@ -167,7 +186,16 @@ namespace airlabs
                 s.lastTouch = now;
                 s.free = false;
                 if (s.phase == kLabHang) s.phase = kLabFlying;
-                if (p.motion == kLabRespawn) { s.phase = kLabTouched; s.phaseEnd = now + kLabTouchedSec; }
+                if (p.motion == kLabRespawn) { s.phase = kLabTouched; s.phaseEnd = now + (s.ringActive ? 3.5f : kLabTouchedSec); }
+            }
+            if (s.ringActive && !s.ringScored && s.phase == kLabTouched &&
+                LabRingCrossed(ringMovesRelative ? ballWorldBefore : Sub(ballWorldBefore, carWorldBefore),
+                               ringMovesRelative ? FromRs(arena->ball->GetState().pos) : FromRs(arena->ball->GetState().pos - car->GetState().pos),
+                               ringMovesRelative ? FromRs(ringWorld) : FromRs(ringAnchorRelative), s.ringNormal, s.ringRadius))
+            {
+                s.ringScored = s.ringScoredNow = true;
+                ++s.redirects;
+                s.phaseEnd = now + 0.8;
             }
             Mirror();
             if (s.touchedNow) s.lastBallSpeed = Len(LabRelVel(s));
@@ -180,7 +208,7 @@ namespace airlabs
             const float r = Len(s.ballPos);
             const bool outEdge = r >= p.bubble && Dot(s.ballPos, relNow) > 0.f;
             const bool outFloor = s.ballPos.Z <= -p.floor && relNow.Z < 0.f;
-            if (outEdge || outFloor)
+            if ((outEdge || outFloor) && !(s.ringActive && s.phase == kLabTouched))
             {
                 if (p.motion == kLabRespawn)
                 {
@@ -247,6 +275,23 @@ namespace airlabs
         RocketSim::Arena* arena = nullptr;
         RocketSim::Car* car = nullptr;
         uint64_t lastHitTick = ~0ULL;
+        RocketSim::Vec ringWorld{ 0, 0, 0 };
+        RocketSim::Vec ringAnchorRelative{ 0, 0, 0 };
+        bool ringMovesRelative = true;
+
+        void MakeRedirect(const LabParams& p, std::mt19937& rng, double now)
+        {
+            s.ringActive = p.motion == kLabRespawn && p.redirectRing;
+            s.ringScored = s.ringScoredNow = false;
+            if (!s.ringActive) return;
+            LabParams planning = p;
+            planning.hangSec = static_cast<float>(std::max(0.0, s.phaseEnd - now));
+            redirectPlan = LabPlanRedirect(arena, car, planning, s, rng);
+            ringWorld = ToRs(redirectPlan.goal);
+            ringAnchorRelative = ringWorld - car->GetState().pos;
+            ringMovesRelative = p.ringRelativeMotion;
+            s.ringNormal = redirectPlan.normal;
+        }
 
         void ApplySettings(const LabParams& p)
         {
@@ -270,6 +315,7 @@ namespace airlabs
             s.carVel = FromRs(cs.vel);
             s.ballVel = FromRs(bs.vel);
             s.ballPos = Sub(FromRs(bs.pos), FromRs(cs.pos));
+            if (s.ringActive) s.ringPos = FromRs(ringMovesRelative ? ringWorld - cs.pos : ringAnchorRelative);
             ballSpin = FromRs(bs.angVel);
             carHasFlip = p_flipsInfinite || cs.HasFlipOrJump() || cs.HasFlipReset();
             s.flipReady = carHasFlip;
@@ -307,6 +353,7 @@ namespace airlabs
             SetCarVel(RocketSim::Vec(0, 0, 0));
             PlaceBall(s.ballPos, V(0.f, 0.f, 0.f));
             if (p.flips == kLabFlipsReal) GiveFlip();
+            MakeRedirect(p, rng, now);
             Mirror();
         }
         void Curve(const LabParams& p, std::mt19937& rng, double now)
@@ -335,6 +382,7 @@ namespace airlabs
             RocketSim::CarState cs = car->GetState();
             RocketSim::BallState bs = arena->ball->GetState();
             bs.pos = bs.pos - cs.pos;
+            ringWorld -= cs.pos;
             cs.pos = RocketSim::Vec(0, 0, 0);
             car->SetState(cs);
             arena->ball->SetState(bs);

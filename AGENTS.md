@@ -7,6 +7,35 @@ shipped, the rules the owner works by, and what's happening right now.
 
 Read this section first; the rest of the file is the background.
 
+### Latest: Respawn redirect ring and settings (2026-10-29)
+
+- The owner requested no curve in Respawn, default spawn distance 1500-2000 uu, markers off and
+  wait before launch 1.25 s. These are applied locally. Respawn has Nearest/Farthest spawn sliders;
+  its boundary expands to fit the range. Constant keeps its bubble and Curve controls. Spawn
+  floor fallback preserves the chosen radial distance rather than shortening it by clipping Z.
+- The owner approved a new ring on every Respawn ball, roughly 800-1200 uu past an estimated
+  reachable contact, with a modest 15-40 degree redirect accounting for speed/height/gravity.
+  Both the ring itself AND its motion must have separate toggles (explicit owner clarification).
+- `airlabs_lab_redirect_ring` enables the exercise. `airlabs_lab_ring_motion` on: fixed target
+  in hidden-world coordinates, rendered relative to the car exactly like the ball. Off: fixed
+  offset from the car. Switching motion preserves the displayed position; crossing detection
+  uses the same selected coordinates, including movement of the car during the tick.
+- `RedirectRing.h` predicts a meeting point, estimates approach reachability, probes glancing
+  contacts through RocketSim and forecasts the outgoing ball to place the ring. The radius is
+  350 uu; the whole ball must pass through in the planned direction after a touch. A goal turns
+  the ring green, flashes GOAL and increments Redirects. The shot has up to 3.5 s after the last
+  touch; bubble/floor replacement is suspended during that shot, then the next ball/ring appears.
+  Restrictive settings may get a geometric fallback; approach reachability is an estimate, not
+  proof of a steerable controller trajectory. Standard-field visual clamping still applies;
+  large-range exercises are intended for the space map.
+- Local Release/x64 compilation and labworld/legacy boostlab suites pass. Across 24 sampled
+  Slow/Medium/Fast passes and both motion choices, all 24 plans used checked RocketSim touches,
+  all had 15-40 degree turns, and all 24 replayed touches reached their rings. Setup took up to
+  5.3 ms in that check. Motion/toggle continuity, scoring in both coordinate systems, whole-ball
+  clearance, spawn range/floor, no Respawn curve and existing physics regressions passed.
+  No in-game visual or player-reachability check yet; do not release. Use Back to the defaults
+  for saved old settings. Checkpoint branch remains codex/boost-lab-normal-gravity.
+
 ### Latest experiment: keep vertical drift through Volley flips (2026-10-29)
 
 - The owner approved trying flip braking/push in a frame moving with the car's vertical speed

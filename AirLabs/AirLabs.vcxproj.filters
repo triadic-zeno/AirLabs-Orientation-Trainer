@@ -135,6 +135,7 @@
     <ClInclude Include="TrainerCore.h"><Filter>Source</Filter></ClInclude>
     <ClInclude Include="BoostLab.h"><Filter>Source</Filter></ClInclude>
     <ClInclude Include="LabWorld.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="RedirectRing.h"><Filter>Source</Filter></ClInclude>
     <ClInclude Include="imgui\imconfig.h"><Filter>imgui</Filter></ClInclude>
     <ClInclude Include="imgui\imgui.h"><Filter>imgui</Filter></ClInclude>
     <ClInclude Include="imgui\imgui_internal.h"><Filter>imgui</Filter></ClInclude>

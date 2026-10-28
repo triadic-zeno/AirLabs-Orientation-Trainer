@@ -83,8 +83,9 @@ namespace airlabs
         bool dynamic = false;     // a random speed between speedMin and speedMax for each launch or bounce
         float speedMin = 400.f, speedMax = 1400.f;
         float curve = 0.f;        // deg/s, how fast a free ball curves (0 = straight lines)
-        float hangSec = 0.75f;    // s, Respawn: how long a new ball waits before it launches
+        float hangSec = 1.25f;    // s, Respawn: how long a new ball waits before it launches
         float spawnMin = 350.f;   // uu, the nearest a new ball appears
+        float spawnMax = 0.f;     // uu, optional farthest spawn (0 = use the bubble)
         float spawnCone = 180.f;  // deg, new balls appear within this angle of your nose (180 = anywhere)
         float heightMin = -90.f, heightMax = 90.f; // deg above the horizon a new ball can appear at
         float steep = 90.f;       // deg, the steepest a launched or bounced ball travels, up or down from level
@@ -92,6 +93,8 @@ namespace airlabs
         float runSec = 0.f;       // s, run length (0 = endless)
         bool speedLimit = true;   // the car's 2300 cap, the ball's 6000 cap and its air drag; gravity stays on
         bool keepFlipDrift = true; // Volley test: retain vertical drift through flips; ignored in Respawn
+        bool redirectRing = true; // Respawn: aim a touched ball through a target ring
+        bool ringRelativeMotion = true; // off: ring stays at the same offset from your car
         int flips = kLabFlipsReal; // Real: one flip for each new ball, and one for each flip reset (wheels on the ball)
     };
 
@@ -130,6 +133,11 @@ namespace airlabs
         int resets = 0, flipsUsed = 0;
         bool resetNow = false;               // a flip reset this tick
         int wheelsTouching = 0;              // wheels touching the ball (3 or more: a flip reset, as in Rocket League)
+        bool ringActive = false, ringScored = false, ringScoredNow = false;
+        Vector ringPos = V(0.f, 0.f, 0.f);    // ring centre relative to the car, just like ballPos
+        Vector ringNormal = V(1.f, 0.f, 0.f);
+        float ringRadius = 350.f;
+        int redirects = 0;
     };
 
     inline Vector LabRelVel(const LabState& s) { return Sub(s.ballVel, s.carVel); }
@@ -254,6 +262,7 @@ namespace airlabs
     inline Vector LabSpawnPoint(std::mt19937& rng, const LabParams& p, const Vector& nose)
     {
         float hi = std::max(150.f, p.bubble - 60.f);
+        if (p.spawnMax > 0.f) hi = std::min(hi, std::max(150.f, p.spawnMax));
         float lo = std::clamp(p.spawnMin, 150.f, hi);
         float r = std::uniform_real_distribution<float>(lo, hi)(rng);
         const float cone = std::clamp(p.spawnCone, 10.f, 180.f);
@@ -267,7 +276,16 @@ namespace airlabs
             d = LabRandomDir(rng);
         }
         Vector out = Scale(d, r);
-        if (out.Z < lowest) out.Z = lowest;
+        if (out.Z < lowest)
+        {
+            // Impossible height/cone settings are loosened to respect the floor, but
+            // keep the chosen spawn distance instead of shortening it by clipping Z.
+            out.Z = lowest;
+            const float h = std::sqrt(std::max(0.f, r * r - out.Z * out.Z));
+            const float oldH = std::sqrt(d.X * d.X + d.Y * d.Y);
+            out.X = oldH > 1e-6f ? d.X * h / oldH : h;
+            out.Y = oldH > 1e-6f ? d.Y * h / oldH : 0.f;
+        }
         return out;
     }
 
