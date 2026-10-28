@@ -4,6 +4,7 @@
 //   g++ -std=c++20 -O2 -I../RocketSim/src tools/rocketsim_proof.cpp ../RocketSim/build/libRocketSim.a -o rocketsim_proof
 // Result on 2026-10-28: head-on 1500 -> ball 2129, car 1294, car pitches 2.2 rad/s; corner -> ball 1831
 // sideways, car 1355, car yaws and rolls; front flip +500; ball into the wheels -> 4 wheels, flip reset YES.
+#include "RocketSim.h"
 #include <cstdio>
 using namespace RocketSim;
 static Arena* MakeArena(bool speedLimitDrag = false) {
