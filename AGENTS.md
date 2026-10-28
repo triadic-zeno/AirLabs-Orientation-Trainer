@@ -7,12 +7,32 @@ shipped, the rules the owner works by, and what's happening right now.
 
 Read this section first; the rest of the file is the background.
 
+### Latest change: normal gravity and default speed limits (2026-10-28)
+
+- The owner approved normal gravity for BOTH simulated bodies and speed limits ON by default.
+  `LabWorld::ApplySettings` now uses RocketSim's -650 uu/s² gravity. Car cap 2300 uu/s, ball cap
+  6000 uu/s and normal ball drag are on by default in the plugin. The existing toggle can still
+  disable caps and ball drag; gravity remains on. Older zero-gravity descriptions below are history.
+- The visible car is still pinned. A waiting ball now keeps its falling velocity instead of
+  having it zeroed each tick. Launches, bounces and new-ball speed resets retain the lab's rules.
+- A second vendored RocketSim change keeps a stationary ball active in THE_VOID; its upstream
+  zero-velocity sleep shortcut otherwise prevents gravity from acting on a ball placed at rest.
+  Other game modes retain the upstream sleep rule. Documented in thirdparty/RocketSim/AIRLABS.md.
+- Local Release/x64 MSVC compilation (`/t:ClCompile`) passed. The RocketSim-backed labworld_test
+  suite passed, including new free-fall/countdown, both caps and no-contact backflip checks, and
+  existing hit, boost, flip reset and bounce checks. After 1 s without drag, both bodies have
+  vertical velocity -650; their relative displacement is below 0.01 uu. In a rising no-contact
+  backflip, the ball's velocity matches the coasting control every tick while car vertical speed
+  changes. This confirms the mechanism off-game, not the exact cause of the owner's last flip.
+- Changes are in the owner's local build folder. No release or server-version change. Awaiting
+  an in-game rebuild/test with normal gravity and Speed limit: ON; the musty bug is not yet closed.
+
 ### State of the code
 
 - `main` at commit 8523b66 is what the owner last built and played. It builds in Visual Studio,
   with RocketSim compiled into the plugin.
 - **The Boost Lab runs on RocketSim** (`AirLabs/LabWorld.h`, `thirdparty/RocketSim`). The game car is
-  a puppet: RocketSim flies the car and the ball in an empty arena with no gravity. Each tick the game
+  a puppet: RocketSim flies the car and the ball in an empty arena with normal gravity. Each tick the game
   car gets RocketSim's rotation and is held in place, and the game ball is put where RocketSim's ball
   is relative to the car.
 - **Flips are RocketSim's.** The owner's `bakkesmod.log` confirmed that Rocket League itself will NOT
@@ -35,7 +55,26 @@ shoots upwards very fast. Earlier, about every flip: "the ball goes flying".
 the roof of my car is touching as I rotate from the flip." That's real Rocket League: a musty is a
 backflip whose rotation sweeps the roof or back of the car into the ball.
 
+**Owner's clarification (2026-10-28, takeover):** ball cam was ON. The ball came back because it
+hit the bubble boundary. That return is not evidence of a camera-only swing. Check the ball's
+hidden-world velocity separately from the car's flip impulse and the boundary bounce before
+choosing a fix. The owner rebuilt and reproduced a no-contact backflip; the relevant final flip
+is at 16:36:27 in the local BakkesMod log (see evidence below).
+
 **Evidence so far:**
+- **New in-game reproduction, 16:36:27 (owner identifies the LAST flip as no-contact):** at flip
+  detection the ball is 393 uu away, moving at 522 uu/s relative to the car. At +0.7 s it is
+  1659 uu away, moving at 2417 uu/s relative to the car, including +2362 uu/s vertically. Car
+  speed 1355, ball speed 2728; counted touches since detection 0; cumulative bounces 9, balls 1.
+  This establishes a real change in simulated relative motion, so a camera-only explanation is
+  insufficient. It does NOT establish a ball impulse: the starting individual velocities and
+  bounce count were not logged. Touch counting also has a cooldown and starts after the flip's
+  first step. Next isolate ball velocity changes from car velocity changes and lab rule events.
+  In particular, RocketSim Car.cpp lines 786-791 damps the CAR's world-Z velocity during a flip;
+  a rising car losing upward speed would leave an untouched ball moving upward relative to it.
+  This is a source-backed hypothesis, not yet the confirmed cause of this reproduction.
+  The rebuilt log still contains 5-20 uu GAME-moved warnings; the earlier bookkeeping fix alone
+  has not eliminated them. Do not treat these warnings as proof of an extra ball impulse.
 - The owner's log from the diagnostics build (16:11-16:16 that day) shows no "turned the car" and no
   "RocketSim's ball jumped".
 - **"The GAME moved its ball" fired hundreds of times, but it's a false alarm.** The amounts match one
@@ -53,8 +92,8 @@ backflip whose rotation sweeps the roof or back of the car into the ball.
 1. **The camera.** The game car always has zero velocity. Rocket League's air car-camera follows your
    direction of travel; with zero speed it may follow the car's rotation instead. A backflip turns the
    car through a full rotation in about 0.6 s, so the view whips round and the ball appears to shoot
-   off, then comes back. Questions for the owner (asked, not yet answered): was ball cam on or off,
-   and did the ball swing back after the flip or keep going?
+   off, then comes back. The owner has since confirmed ball cam ON and a return caused by a
+   boundary bounce, so this explanation is unconfirmed and the return does not support it.
    - Possible fixes: give the game car a velocity equal to RocketSim's car velocity, so the camera
      behaves as in a match, and place the car at pin - velocity x tick before each physics step so it
      still ends up at the pin. Watch for jitter. Or read and steer the camera (`CameraWrapper`).

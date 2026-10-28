@@ -2,7 +2,7 @@
 // The Boost Lab's hidden world, run by RocketSim (thirdparty/RocketSim: an MIT-licensed
 // reimplementation of Rocket League's physics; see thirdparty/RocketSim/AIRLABS.md).
 //
-// RocketSim simulates your car and the ball in an empty arena (THE_VOID) with no gravity: boost,
+// RocketSim simulates your car and the ball in an empty arena (THE_VOID) with normal gravity: boost,
 // air control, flips, jumps, the ball-car hit (where it lands on the car decides how the ball
 // leaves and how your car spins and slows), the wheels' suspension against the ball, and flip
 // resets (three or more wheels on the ball). The game car becomes a puppet: it shows RocketSim's
@@ -126,10 +126,8 @@ namespace airlabs
                 s.free = true;
                 s.curveAxisUntil = 0.0;
             }
-            else if (s.phase == kLabHang)
-            {
-                SetBallVel(V(0.f, 0.f, 0.f)); // a waiting ball waits
-            }
+            // While waiting, both bodies keep falling under gravity. Clearing the ball's
+            // velocity each tick would hold it up while the car accelerates downward.
             if (s.free && p.curve > 0.f && s.phase == kLabFlying) Curve(p, rng, now);
 
             // ---- the tick itself ----
@@ -252,7 +250,7 @@ namespace airlabs
         void ApplySettings(const LabParams& p)
         {
             RocketSim::MutatorConfig m = arena->GetMutatorConfig();
-            m.gravity = RocketSim::Vec(0, 0, 0);          // open space (gravity cancels between car and ball anyway)
+            m.gravity = RocketSim::Vec(0, 0, RocketSim::RLConst::GRAVITY_Z); // both bodies: normal match gravity
             m.ballDrag = p.speedLimit ? RocketSim::RLConst::BALL_DRAG : 0.f;
             m.ballMaxSpeed = p.speedLimit ? RocketSim::RLConst::BALL_MAX_SPEED : 1e6f;
             m.unlimitedFlips = p.flips == kLabFlipsInfinite;

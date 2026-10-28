@@ -42,6 +42,71 @@ int main()
 {
     std::mt19937 rng(11);
 
+    // ---- normal gravity reaches both bodies, including the launch countdown ----
+    for (int waiting = 0; waiting < 2; ++waiting)
+    {
+        LabParams p;
+        CHECK(p.speedLimit, "normal speed limits should be on by default");
+        p.speedLimit = false; // isolate gravity from ball drag and speed caps
+        p.hangSec = 2.f;
+        p.bubble = 50000.f;
+        p.floor = 50000.f;
+        LabWorld w;
+        w.Start(p, Facing(V(1.f, 0.f, 0.f)), kOctane, rng, 0.0);
+        if (!waiting) w.Place(V(1000.f, 0.f, 300.f), V(0.f, 0.f, 0.f), V(0.f, 0.f, 0.f));
+        const Vector initialRel = w.s.ballPos;
+        for (int i = 0; i < 120; ++i) w.Step(p, LabControls{}, rng, i * kTick);
+        std::printf("1 s gravity, %s: car Z %.1f, ball Z %.1f, relative displacement %.3f\n",
+                    waiting ? "waiting" : "flying", w.s.carVel.Z, w.s.ballVel.Z, Len(Sub(w.s.ballPos, initialRel)));
+        CHECK(std::fabs(w.s.carVel.Z + 650.f) < 1.f, "gravity on car: %.1f", w.s.carVel.Z);
+        CHECK(std::fabs(w.s.ballVel.Z + 650.f) < 1.f, "gravity on ball: %.1f", w.s.ballVel.Z);
+        CHECK(Len(Sub(w.s.ballPos, initialRel)) < 0.1f, "equal free fall should preserve separation");
+        CHECK(w.s.touches == 0 && w.s.bounces == 0 && w.s.balls == 1, "free fall changed the drill");
+        CHECK(w.s.phase == (waiting ? kLabHang : kLabFlying), "unexpected phase during free fall");
+    }
+
+    // ---- the default caps constrain BOTH bodies, including vertical speed ----
+    {
+        LabParams p;
+        p.bubble = p.floor = 50000.f;
+        LabWorld w;
+        w.Start(p, Facing(V(1.f, 0.f, 0.f)), kOctane, rng, 0.0);
+        w.Place(V(10000.f, 0.f, 10000.f), V(0.f, 0.f, 7000.f), V(0.f, 0.f, 6000.f));
+        for (int i = 0; i < 120; ++i)
+        {
+            w.Step(p, LabControls{}, rng, i * kTick);
+            CHECK(Len(w.s.carVel) <= 2300.1f, "car exceeded its cap: %.1f", Len(w.s.carVel));
+            CHECK(Len(w.s.ballVel) <= 6000.1f, "ball exceeded its cap: %.1f", Len(w.s.ballVel));
+        }
+        CHECK(w.s.touches == 0 && w.s.bounces == 0, "speed cap test had contact or a bounce");
+    }
+
+    // ---- a backflip can cut car vertical speed without imparting any impulse to the ball ----
+    {
+        LabParams p;
+        p.bubble = p.floor = 50000.f;
+        LabWorld flip, coast;
+        flip.Start(p, Facing(V(1.f, 0.f, 0.f)), kOctane, rng, 0.0);
+        coast.Start(p, Facing(V(1.f, 0.f, 0.f)), kOctane, rng, 0.0);
+        for (LabWorld* w : { &flip, &coast })
+            w->Place(V(0.f, 1000.f, 300.f), V(0.f, 0.f, 1800.f), V(0.f, 0.f, 1800.f));
+        LabControls c;
+        c.jump = true;
+        c.pitch = 1.f;
+        for (int i = 0; i < 84; ++i)
+        {
+            flip.Step(p, c, rng, i * kTick);
+            coast.Step(p, LabControls{}, rng, i * kTick);
+            c = LabControls{};
+            CHECK(Len(Sub(flip.s.ballVel, coast.s.ballVel)) < 0.1f, "no-contact flip changed ball velocity");
+            CHECK(Len(flip.s.carVel) <= 2300.1f, "backflip exceeded the car speed cap");
+        }
+        std::printf("no-contact backflip: ball Z %.0f (coasting %.0f), car Z %.0f (coasting %.0f), relative up %.0f\n",
+                    flip.s.ballVel.Z, coast.s.ballVel.Z, flip.s.carVel.Z, coast.s.carVel.Z, LabRelVel(flip.s).Z);
+        CHECK(coast.s.carVel.Z - flip.s.carVel.Z > 1000.f, "flip should reduce the car's upward velocity");
+        CHECK(flip.s.touches == 0 && flip.s.bounces == 0 && flip.s.balls == 1, "no-contact flip changed the drill");
+    }
+
     // ---- hits: the car slows, spins, and where it lands changes how the ball leaves ----
     {
         HitResult nose = Hit(rng, V(13.88f + 59.f + 91.25f + 15.f, 0.f, 20.75f), 1500.f);

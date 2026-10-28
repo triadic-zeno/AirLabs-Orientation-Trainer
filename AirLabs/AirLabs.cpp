@@ -489,7 +489,7 @@ void AirLabs::RegisterCvars()
     labMotion = mkI(kLabRespawn); labBubble = mkF(800.f); labPass = mkF(250.f); labSpeed = mkF(800.f); labHang = mkF(0.75f);
     labSpeedMin = mkF(400.f); labSpeedMax = mkF(1400.f); labCurve = mkF(0.f); labRun = mkF(0.f); labCone = mkF(180.f);
     labHeightMin = mkF(-90.f); labHeightMax = mkF(90.f); labSteep = mkF(45.f); labFloor = mkF(300.f);
-    labDynamic = mkB(false); labDust = mkB(false); labMarkers = mkB(true); labNavball = mkB(false); labSpeedLimit = mkB(false); labFlips = mkI(kLabFlipsReal); labDebug = mkB(true);
+    labDynamic = mkB(false); labDust = mkB(false); labMarkers = mkB(true); labNavball = mkB(false); labSpeedLimit = mkB(true); labFlips = mkI(kLabFlipsReal); labDebug = mkB(true);
 
     reg("airlabs_mode", "1", "0 = Flick, 1 = Track (default), 2 = Hybrid, 3 = Chase", 0.f, static_cast<float>(kModeCount - 1)).bindTo(mode);
     reg("airlabs_preset_flick", "4", "Flick preset (last = Custom)", 0.f, maxIdx(kFlick)).bindTo(presetFlick);
@@ -560,7 +560,7 @@ void AirLabs::RegisterCvars()
     reg("airlabs_lab_height_max", "90", "Boost Lab: highest a new ball appears (deg above the horizon)", -90.f, 90.f).bindTo(labHeightMax);
     reg("airlabs_lab_steep", "45", "Boost Lab: the steepest a launched or bounced ball travels, up or down from level (deg)", 0.f, 90.f).bindTo(labSteep);
     reg("airlabs_lab_floor", "300", "Boost Lab: how far below your car the ball can go; it bounces off this floor (uu, 2000 = no floor)", 100.f, 2000.f).bindTo(labFloor);
-    reg("airlabs_lab_speed_limit", "0", "Boost Lab: the 2300 speed cap and the ball's air drag, as on a field (off: open space, only how you move relative to the ball counts)", 0.f, 1.f).bindTo(labSpeedLimit);
+    reg("airlabs_lab_speed_limit", "1", "Boost Lab: normal speed limits (car 2300, ball 6000) and ball air drag; gravity stays on", 0.f, 1.f).bindTo(labSpeedLimit);
     reg("airlabs_lab_flips", "1", "Boost Lab flips: 0 = off, 1 = real (one for each new ball, one for each flip reset), 2 = infinite", 0.f, 2.f).bindTo(labFlips);
     reg("airlabs_lab_debug", "1", "Boost Lab: a debug line on the HUD (jump presses, flips, flip resets, what the game says)", 0.f, 1.f).bindTo(labDebug);
     reg("airlabs_lab_dust", "0", "Boost Lab: specks of dust that streak past as you move", 0.f, 1.f).bindTo(labDust);

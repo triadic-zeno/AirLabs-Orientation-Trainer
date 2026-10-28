@@ -418,7 +418,7 @@ test: there are no scores or leaderboard yet.
 
 **The physics is RocketSim** (`thirdparty/RocketSim`, MIT licence): a reimplementation of Rocket
 League's physics, close enough that machine-learning bots train on it. It runs your car and the ball
-in an empty arena with no gravity: boost, air control, flips and jumps, the ball-car hit (where the
+in an empty arena with normal gravity: boost, air control, flips and jumps, the ball-car hit (where the
 ball lands on your car decides how it leaves, how much speed your car loses and how your car spins),
 the wheels' suspension against the ball, and flip resets (three or more wheels on the ball). The
 game car is a puppet that shows RocketSim's car, held in place; the real ball is drawn where
@@ -431,7 +431,8 @@ pitches at 2.4 rad/s; off the front corner the ball leaves at 1802, 1076 of it s
   holding boost pushes it along its nose at 991.7 uu/s² (air throttle: 66.7 uu/s²), up to 2300 uu/s,
   and letting go doesn't stop you. Turning doesn't change where you're going; only boost does. The
   ball has its own velocity, and is drawn where it is relative to you. Gravity pulls the car and
-  the ball down equally, so it doesn't change how they move relative to each other and is left out.
+  the ball down at 650 uu/s². Their individual speeds still matter for flips, speed limits and ball
+  drag, so gravity is simulated even though your visible car stays pinned.
 - **The bubble.** The ball always stays within the bubble around your car (Short 500, Medium 800,
   Long 1200 uu, or any size up to 2000). On the standard field it also stops at the floor, walls and roof.
 - **Respawn:** a new ball appears in the bubble (within the angle of your nose and the height band
@@ -450,11 +451,10 @@ pitches at 2.4 rad/s; off the front corner the ball leaves at 1802, 1076 of it s
 - **Floor and steepness:** the ball never goes more than the floor distance below your car (300 uu
   by default; it bounces off it), and launches and bounces travel no steeper than 45 degrees from
   level by default (curving balls then curve left and right only).
-- **Speed limit (off by default):** with it on, the car tops out at 2300, the ball at 6000, and the
+- **Speed limit (on by default):** with it on, the car tops out at 2300, the ball at 6000, and the
   ball has Rocket League's air drag (about 3% of its speed a second), so a ball pushed just past your
-  top speed comes back within reach (the HUD says when it's faster than you). All three are measured
-  against a field; open space has none, so with it off only how you move relative to the ball counts
-  and an air dribble can go on for ever (gravity cancels between car and ball, as it does in a real one).
+  top speed loses speed in the air (the HUD says when it's faster than you). Turning the limit off
+  removes both caps and ball drag. Normal gravity stays on for both bodies in either setting.
 - **Flips** (Off / Real / Infinite; Real by default): jump with the stick flips, jump without it is a
   double jump, all by RocketSim's rules (Rocket League's). Real gives one flip with each new ball and
   each bounce (it lasts until you use it, like a flip reset), and one for every **flip reset**: three
@@ -530,7 +530,7 @@ PC clock if it ever looks wrong; the Readout shows which is in use.
 | `airlabs_lab_motion 0` / `1` | Boost Lab: Respawn / Constant |
 | `airlabs_lab_bubble`, `_pass`, `_speed`, `_dynamic`, `_speed_min`, `_speed_max`, `_curve`, `_cone`, `_height_min`, `_height_max`, `_steep`, `_floor`, `_run`, `_hang` | Boost Lab settings (see "Boost Lab") |
 | `airlabs_lab_flips 0` / `1` / `2` | Boost Lab flips: off / real (default) / infinite |
-| `airlabs_lab_speed_limit 1` / `0` | Boost Lab speed limit and ball drag on / off (default) |
+| `airlabs_lab_speed_limit 1` / `0` | Boost Lab speed limits and ball drag on (default) / off; gravity stays on |
 | `airlabs_lab_markers`, `airlabs_lab_navball`, `airlabs_lab_dust` (1 / 0) | Boost Lab: relative markers (on), navball (off), dust (off) |
 | `airlabs_lab_botprobe` | Test: spawn a bot car and hold it next to you for 20 s |
 | `airlabs_watch <run>` | Watch a leaderboard run's replay (the number is the run's id on the server) |

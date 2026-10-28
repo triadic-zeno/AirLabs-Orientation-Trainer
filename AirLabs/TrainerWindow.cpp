@@ -1632,9 +1632,9 @@ void AirLabs::WinLab()
         FontScope f(small);
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kDim));
         ImGui::TextWrapped("Flip with jump and the stick, as in a match: the flip turns your car and pushes it (sideways and backwards flips "
-                           "push harder the faster you're going). Speed limit: a car tops out at 2300 and the ball slows in the air, but both "
-                           "are measured against the field. Open space has no field, so with it off only how you move relative to the ball "
-                           "counts, and an air dribble can go on for ever.");
+                           "push harder the faster you're going). Normal gravity pulls both you and the ball down. Speed limit is on by "
+                           "default: your car tops out at 2300, the ball at 6000, and the ball slows in the air. Turning the limit off "
+                           "removes the caps and ball drag; gravity stays on.");
         ImGui::PopStyleColor();
     }
 

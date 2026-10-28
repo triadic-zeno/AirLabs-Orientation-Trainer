@@ -692,7 +692,9 @@ void Arena::Step(int ticksToSimulate) {
 		_bulletWorld.setWorldUserInfo(this);
 
 		{ // Ball zero-vel sleeping
-			if (ball->_rigidBody.m_linearVelocity.length2() == 0 && ball->_rigidBody.m_angularVelocity.length2() == 0) {
+			// AirLabs change: in THE_VOID there is no floor holding a still ball up.
+			// Keep it active so gravity accelerates it from rest, just like the car.
+			if (gameMode != GameMode::THE_VOID && ball->_rigidBody.m_linearVelocity.length2() == 0 && ball->_rigidBody.m_angularVelocity.length2() == 0) {
 				ball->_rigidBody.setActivationState(ISLAND_SLEEPING);
 			} else {
 				ball->_rigidBody.setActivationState(ACTIVE_TAG);

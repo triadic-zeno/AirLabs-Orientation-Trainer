@@ -8,9 +8,10 @@
 // The car stays pinned on screen and everything is worked out relative to it. Underneath,
 // there's a hidden world where the car really moves: boost pushes it along its nose (and it
 // keeps drifting when you let go: there are no brakes in the air), the ball has its own
-// velocity, and what you see is the ball's position relative to your car. Gravity pulls the
-// car and the ball down equally, so it doesn't change how they move relative to each other,
-// and there isn't any here.
+// velocity, and what you see is the ball's position relative to your car. LabWorld applies normal
+// gravity to both. Their individual velocities matter to flips, speed caps and ball drag, even
+// though equal gravitational acceleration alone cancels out of their relative motion.
+// The legacy LabStep below still omits gravity; it is not the plugin's physics.
 //
 // The ball lives inside a bubble around the car. A new ball appears somewhere inside it,
 // waits a moment (its launch direction already chosen, so it can be shown), then launches.
@@ -23,10 +24,9 @@
 // can actually reach from where you are (slower than the set speed if it has to), never travel steeper than `steep` degrees
 // from level, and never take it below the floor (`floor` uu under you), which it also bounces off.
 //
-// Speed limit (an option): the car's 2300 cap, the ball's 6000 and the ball's air drag (about 3% of
-// its speed a second). All three are measured against a field; in open space there isn't one, so
-// with the limit off only how you move relative to the ball counts (an air dribble can go on for
-// ever, as gravity cancels between car and ball). Cars have no drag.
+// Speed limit (on by default): the car's 2300 cap, the ball's 6000 and the ball's air drag (about
+// 3% of its speed a second). Turning it off removes the caps and ball drag. LabWorld keeps normal
+// gravity in either setting. Cars have no drag.
 //
 // Flips: the game does the flip itself when it can (the plugin adds its push to your momentum);
 // LabFlipImpulse is Rocket League's flip push for when it can't. Real flips: one for each new ball
@@ -90,8 +90,7 @@ namespace airlabs
         float steep = 90.f;       // deg, the steepest a launched or bounced ball travels, up or down from level
         float floor = 5000.f;     // uu, how far below your car the ball can go (it bounces off this floor)
         float runSec = 0.f;       // s, run length (0 = endless)
-        bool speedLimit = true;   // the car's 2300 cap, the ball's 6000 cap and its air drag (all measured against a field;
-                                  // off: open space, where only how you move relative to the ball counts)
+        bool speedLimit = true;   // the car's 2300 cap, the ball's 6000 cap and its air drag; gravity stays on
         int flips = kLabFlipsReal; // Real: one flip for each new ball, and one for each flip reset (wheels on the ball)
     };
 
