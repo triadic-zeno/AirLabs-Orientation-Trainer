@@ -158,9 +158,30 @@ RocketSim's jump and flip state onto the game car (`SetbJumped`, `SetbDoubleJump
 game's own wheels touch the real ball it sees the dodge come back. Test this in game.
 
 Building: add RocketSim's `src/` and `libsrc/` (a Bullet subset, about 3 MB of source) to the Visual
-Studio project, or as a static library project, and check MSVC compiles it into the plugin DLL. In
-the cloud session, building or running RocketSim's code needs the owner's approval: an automatic
-safety check blocks running downloaded code without it.
+Studio project, or as a static library project, and check MSVC compiles it into the plugin DLL. The
+owner has approved building and running RocketSim in the cloud session (2026-10-28).
+
+**Proven (2026-10-28, `tools/rocketsim_proof.cpp`):** RocketSim built with CMake and ran in
+`THE_VOID` with gravity set to 0 and `ballDrag` 0, after `RocketSim::InitFromMem({}, true)`:
+- head-on at 1500 into a still ball (middle of the nose): ball 2129 uu/s, car slowed to 1294, car
+  pitching at 2.2 rad/s (the ball sits above the car's centre of mass);
+- the same off the front-right corner: ball 1831 going sideways, car 1355, car yawing and rolling;
+- a front flip 0.3 s after a jump: +500 uu/s, spin 5.5 rad/s;
+- a car that had already flipped, with the ball rising at 150 uu/s into its wheels: 4 wheels in
+  contact, flip reset YES, the ball resting on the suspension.
+
+**Next steps, in order:**
+1. Work out how RocketSim's `RotMat` maps onto `BasisFromRotator` (axis order and roll sign) with an
+   off-game test, so the game car can be set from RocketSim's car each tick.
+2. Vendor RocketSim into the repo (for example `thirdparty/RocketSim/`, with its LICENSE), and patch
+   the hard-coded 2300 car cap (`Car.cpp`) behind a switch for the speed limit option.
+3. Rebuild `LabTick` around a RocketSim arena: controls in, `Step(1)`, game car rotation and ball
+   position out, and the lab rules applied with `SetState`. Pick the CarConfig preset (Octane,
+   Dominus, Plank, Breakout, Hybrid, Merc) whose hitbox is closest to the game car's. Re-centre both
+   bodies now and then so positions stay small. Strip jump from the game car and mirror RocketSim's
+   jump and flip state onto it for the game's own flip reset effect.
+4. Keep `LabState` filled from RocketSim each tick so the HUD, markers and navball keep working.
+5. Off-game tests with RocketSim linked in; add it to the off-game sim; then the owner tests in game.
 
 Validate off-game before the owner tests: head-on and corner hits, the car's spin after an
 off-centre hit, the car's speed loss on a touch, flip pushes, a flip reset with three wheels, and a
