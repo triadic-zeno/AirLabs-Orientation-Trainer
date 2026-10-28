@@ -7,6 +7,7 @@ struct Vector { float X, Y, Z; };
 #include "TrainerCore.h"
 #include "BoostLab.h"
 #include "LabWorld.h"
+#include "LabPreview.h"
 
 using namespace airlabs;
 static int failures = 0;
@@ -82,8 +83,8 @@ int main()
             ++checked;
             if (plan.turn >= 15.f && plan.turn <= 40.f) ++modest;
             const float distance = plan.distance;
-            CHECK(distance >= 1000.f && distance <= 1500.f, "redirect target distance %.1f", distance);
-            CHECK(Len(w.s.ringPos) >= 999.9f && Len(w.s.ringPos) <= 1500.1f, "visible ring spawn distance %.1f", Len(w.s.ringPos));
+            CHECK(std::fabs(distance - p.goalDistance) < 0.1f, "redirect target distance %.1f", distance);
+            CHECK(std::fabs(Len(w.s.ringPos) - p.goalDistance) < 0.1f, "visible ring spawn distance %.1f", Len(w.s.ringPos));
             std::unique_ptr<RocketSim::Arena> replay(RocketSim::Arena::Create(RocketSim::GameMode::THE_VOID));
             auto m = replay->GetMutatorConfig();
             m.gravity = RocketSim::Vec(0, 0, 0); // Respawn is now gravity-free
@@ -104,15 +105,62 @@ int main()
                 const Vector carBefore = FromRs(car->GetState().pos);
                 replay->Step(1);
                 hit = hit || car->GetState().ballHitInfo.isValid;
-                if (hit && LabRingCrossed(p.ringRelativeMotion ? before : Sub(before, carBefore),
-                    p.ringRelativeMotion ? FromRs(replay->ball->GetState().pos) : FromRs(replay->ball->GetState().pos - car->GetState().pos),
-                    plan.goal, plan.normal, 350.f)) { goal = true; break; }
+                const Vector carAfter = FromRs(car->GetState().pos);
+                if (hit && LabFacingRingCrossed(before, FromRs(replay->ball->GetState().pos),
+                    p.ringRelativeMotion ? plan.goal : Add(carBefore, plan.goal),
+                    p.ringRelativeMotion ? plan.goal : Add(carAfter, plan.goal), carBefore, carAfter, 350.f)) { goal = true; break; }
             }
             if (goal) ++crossed;
         }
         std::printf("redirect plans: checked %d/24, modest %d, replayed goals %d, worst setup %.1f ms\n", checked, modest, crossed, worstMs);
         CHECK(checked >= 22 && modest >= 22, "too few solver-checked modest redirects");
         CHECK(crossed == checked, "a planned touch did not reach its ring");
+    }
+
+    // The viewer-facing opening must not score when only the viewer moves.
+    {
+        CHECK(!LabFacingRingCrossed(V(0.f, 100.f, 0.f), V(0.f, 100.f, 0.f), V(0.f, 0.f, 0.f), V(0.f, 0.f, 0.f),
+            V(-100.f, 100.f, 0.f), V(-100.f, -100.f, 0.f), 350.f), "moving camera alone scored a goal");
+        CHECK(LabFacingRingCrossed(V(-10.f, 0.f, 0.f), V(10.f, 0.f, 0.f), V(0.f, 0.f, 0.f), V(0.f, 0.f, 0.f),
+            V(-1000.f, 0.f, 0.f), V(-1000.f, 0.f, 0.f), 350.f), "viewer-facing centre crossing missed");
+    }
+
+    // Preview geometry responds immediately, preserves an allowed example, and uses real rules.
+    {
+        LabParams p;
+        p.spawnMin = 1500.f; p.spawnMax = 2000.f; p.bubble = 2060.f; p.floor = 300.f;
+        LabPreview preview;
+        const Basis basis = Facing(V(1.f, 0.f, 0.f));
+        preview.Update(p, basis, 123u, false);
+        CHECK(preview.data.spawnValid && !preview.data.velocities.empty(), "preview has no valid example");
+        const float savedCap = RocketSim::g_carMaxSpeedUU;
+        RocketSim::g_carMaxSpeedUU = 777.f;
+        for (int i = 0; i < 20; ++i) preview.Update(p, basis, 123u, true);
+        CHECK(!preview.data.goals.empty(), "default preview produced no checked goal examples");
+        CHECK(RocketSim::g_carMaxSpeedUU == 777.f, "preview changed the live world's speed cap");
+        RocketSim::g_carMaxSpeedUU = savedCap;
+        const Vector example = preview.data.example;
+        for (const auto& l : preview.data.lines) if (l.layer == 0 && l.lit)
+            CHECK(LabSpawnAllowed(l.a, p, basis.forward) && LabSpawnAllowed(l.b, p, basis.forward), "preview lights forbidden spawns");
+        for (const Vector& v : preview.data.velocities) CHECK(LabLaunchAllowed(example, v, p), "preview shows forbidden launch");
+        p.goalDistance = 1750.f;
+        preview.Update(p, basis, 123u, false);
+        CHECK(Len(Sub(example, preview.data.example)) < 0.01f, "goal slider unnecessarily replaced the selected ball");
+        for (const auto& l : preview.data.lines) if (l.layer == 2)
+            CHECK(std::fabs(Len(l.a) - 1750.f) < 0.1f, "goal shell did not update live");
+        p.spawnCone = 30.f; p.heightMin = p.heightMax = 0.f;
+        preview.Update(p, basis, 123u, false);
+        CHECK(preview.data.spawnValid && AngleDeg(preview.data.example, basis.forward) <= 30.1f && std::fabs(preview.data.example.Z) < 0.1f,
+            "cone/level height changes did not update preview");
+        p.speed = 400.f; p.pass = 350.f; p.steep = 20.f;
+        preview.Update(p, basis, 123u, false);
+        for (const Vector& v : preview.data.velocities) CHECK(LabLaunchAllowed(preview.data.example, v, p), "changed settings left stale paths");
+        p.maxRedirectAngle = 30.f;
+        for (int i = 0; i < 20; ++i) preview.Update(p, basis, 123u, true);
+        for (const Vector& goal : preview.data.goals) CHECK(std::fabs(Len(goal) - p.goalDistance) < 0.1f, "preview checked goal at wrong distance");
+        p.heightMin = p.heightMax = -90.f; // floor forbids this direction
+        preview.Update(p, basis, 123u, false);
+        CHECK(!preview.data.spawnValid && preview.data.goals.empty() && preview.data.velocities.empty(), "impossible spawn showed stale examples");
     }
 
     // Ring motion and its toggle use the same coordinates as the visible target.
@@ -142,9 +190,11 @@ int main()
     for (bool relative : { false, true })
     {
         LabParams p;
-        p.speedLimit = false; p.ringRelativeMotion = relative; p.bubble = 10000.f;
+        p.speedLimit = false; p.ringRelativeMotion = relative; p.bubble = 2060.f;
+        p.spawnMin = 1500.f; p.spawnMax = 2000.f;
         LabWorld w;
         w.Start(p, Facing(V(1.f, 0.f, 0.f)), kOctane, rng, 0.0);
+        CHECK(w.s.ringActive, "scoring test could not create a checked goal");
         const Vector normal = w.s.ringNormal;
         const Vector cv = V(500.f, 0.f, 0.f);
         w.Place(Sub(w.s.ringPos, Scale(normal, 10.f)), Add(cv, Scale(normal, 2400.f)), cv);

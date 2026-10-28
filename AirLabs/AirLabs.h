@@ -26,6 +26,7 @@
 #include "TrainerCore.h"
 #include "BoostLab.h"
 #include "LabWorld.h"
+#include "LabPreview.h"
 #include "Replay.h"
 #include "Tips.h"
 
@@ -384,9 +385,19 @@ private:
     // pinned on screen, and the ball is drawn where it is relative to you. No scores yet.
     std::shared_ptr<int> labMotion;                                   // airlabs_lab_motion: 0 = Respawn, 1 = Constant
     std::shared_ptr<float> labBubble, labPass, labSpeed, labSpeedMin, labSpeedMax, labHang, labCurve, labRun, labCone, labHeightMin, labHeightMax, labSteep, labFloor;
-    std::shared_ptr<float> labSpawnMin, labSpawnMax, labRingSize; // Respawn range and ring diameter
+    std::shared_ptr<float> labSpawnMin, labSpawnMax, labRingSize, labGoalDistance, labRedirectAngle;
     std::shared_ptr<bool> labDynamic, labDust, labMarkers, labNavball, labSpeedLimit, labKeepFlipDrift, labRedirectRing, labRingMotion;
     std::shared_ptr<int> labFlips;    // airlabs_lab_flips: 0 = off, 1 = real (one per ball, one per flip reset), 2 = infinite
+    std::shared_ptr<bool> labPreviewEnabled, labPreviewBalls, labPreviewPaths, labPreviewGoals;
+    airlabs::LabPreview labPreviewModel;
+    std::mutex labPreviewMutex;
+    std::shared_ptr<const airlabs::LabPreviewData> labPreviewSnapshot;
+    std::atomic<bool> labPreviewQueued{ false };
+    std::atomic<unsigned> labPreviewSeed{ 1701u };
+    float labPreviewYaw = -140.f, labPreviewPitch = 25.f;
+    void QueueLabPreview();
+    void DrawLabPreviewWindow();
+    void DrawLabPreviewWorld(CanvasWrapper& canvas);
     // RocketSim runs the hidden world (LabWorld.h): car, ball, hits, wheels, flips, flip resets.
     airlabs::LabWorld labWorld;
     bool labJumpHeld = false;

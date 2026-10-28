@@ -102,6 +102,7 @@
     <ClCompile Include="AirLabs.cpp" />
     <ClCompile Include="Leaderboard.cpp" />
     <ClCompile Include="TrainerWindow.cpp" />
+    <ClCompile Include="LabPreview.cpp" />
     <ClCompile Include="imgui\imgui.cpp" />
     <ClCompile Include="imgui\imgui_draw.cpp" />
     <ClCompile Include="imgui\imgui_widgets.cpp" />
@@ -531,6 +532,8 @@
     <ClInclude Include="BoostLab.h" />
     <ClInclude Include="LabWorld.h" />
     <ClInclude Include="RedirectRing.h" />
+    <ClInclude Include="LabPreview.h" />
+    <ClInclude Include="LabPreviewDraw.h" />
     <ClInclude Include="EmbeddedFonts.h" />
     <ClInclude Include="Replay.h" />
     <ClInclude Include="Tips.h" />

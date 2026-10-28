@@ -43,6 +43,7 @@
 // Needs TrainerCore.h first (Vector helpers, Basis). Nothing here talks to the game.
 
 #include <random>
+#include <string>
 
 namespace airlabs
 {
@@ -97,6 +98,8 @@ namespace airlabs
         bool redirectRing = true; // Respawn: aim a touched ball through a target ring
         bool ringRelativeMotion = true; // off: ring stays at the same offset from your car
         float ringRadius = 350.f; // uu; UI presents the full diameter as Ring size
+        float goalDistance = 1250.f; // one exact distance from the car at spawn
+        float maxRedirectAngle = 40.f;
         int flips = kLabFlipsReal; // Real: one flip for each new ball, and one for each flip reset (wheels on the ball)
     };
 
@@ -140,6 +143,7 @@ namespace airlabs
         Vector ringNormal = V(1.f, 0.f, 0.f);
         float ringRadius = 350.f;
         int redirects = 0;
+        bool spawnValid = true, launchValid = true, goalValid = true;
     };
 
     inline Vector LabRelVel(const LabState& s) { return Sub(s.ballVel, s.carVel); }
@@ -181,6 +185,25 @@ namespace airlabs
     {
         float t = std::max(0.f, -Dot(p, d));
         return Len(Add(p, Scale(d, t)));
+    }
+
+    inline bool LabSpawnAllowed(const Vector& point, const LabParams& p, const Vector& nose)
+    {
+        const float r = Len(point), hi = p.spawnMax > 0.f ? std::min(p.spawnMax, p.bubble - 60.f) : p.bubble - 60.f;
+        const float lo = std::min(p.spawnMin, hi), e = ElevationDeg(Norm(point));
+        return r >= lo - 0.05f && r <= hi + 0.05f &&
+            AngleDeg(point, nose) <= p.spawnCone + 0.01f &&
+            e >= std::min(p.heightMin, p.heightMax) - 0.01f && e <= std::max(p.heightMin, p.heightMax) + 0.01f &&
+            point.Z >= -(p.floor - kLabBallRadius) - 0.05f;
+    }
+
+    inline auto LabGeometryKey(const LabParams& p, const Vector& nose)
+    {
+        return std::array{ static_cast<float>(p.motion), p.bubble, p.pass, p.speed, static_cast<float>(p.dynamic),
+            p.speedMin, p.speedMax, p.curve, p.hangSec, p.spawnMin, p.spawnMax, p.spawnCone, p.heightMin, p.heightMax,
+            p.steep, p.floor, p.runSec, static_cast<float>(p.speedLimit), static_cast<float>(p.flips),
+            static_cast<float>(p.redirectRing), static_cast<float>(p.ringRelativeMotion), p.ringRadius,
+            p.goalDistance, p.maxRedirectAngle, nose.X, nose.Y, nose.Z };
     }
 
     // A direction for a ball at p: its path passes at least `pass` from the car, travels no
@@ -232,6 +255,16 @@ namespace airlabs
         return false;
     }
 
+    inline bool LabLaunchAllowed(const Vector& pos, const Vector& velocity, const LabParams& p)
+    {
+        if (Len(velocity) < 1.f) return false;
+        const Vector d = Norm(velocity);
+        return std::fabs(ElevationDeg(d)) <= p.steep + 0.05f &&
+            LabPassDistance(pos, d) >= p.pass - 0.1f &&
+            LabRunDistance(pos, d, p.bubble, p.floor) >= p.bubble - 0.1f &&
+            LabReachable(pos, velocity, p, p.motion == kLabRespawn ? kLabReactSecWait : kLabReactSec);
+    }
+
     // A launch or bounce for a ball at p (your car at rest): a direction that keeps the pass
     // distance, the steepness and the run across the bubble, at a speed you can actually reach
     // it at. Starts at `speed`, and goes slower (by 15% at a time, down to 150) until a direction
@@ -270,12 +303,24 @@ namespace airlabs
         const float cone = std::clamp(p.spawnCone, 10.f, 180.f);
         const float hMin = std::min(p.heightMin, p.heightMax), hMax = std::max(p.heightMin, p.heightMax);
         const float lowest = -(p.floor - kLabBallRadius); // keep it above the floor
+        const float noseHeight = ElevationDeg(Norm(nose));
+        const float zLo = std::max({ std::sin(hMin * kDeg), lowest / r,
+            std::sin(std::max(-90.f, noseHeight - cone) * kDeg) });
+        const float zHi = std::min(std::sin(hMax * kDeg), std::sin(std::min(90.f, noseHeight + cone) * kDeg));
         Vector d = LabRandomDir(rng);
-        for (int i = 0; i < 2000; ++i)
+        const Vector n = Norm(nose);
+        if (zLo <= zHi)
+        for (int i = 0; i < 256; ++i)
         {
-            float e = ElevationDeg(d);
-            if (AngleDeg(d, nose) <= cone && e >= hMin && e <= hMax && d.Z * r >= lowest) break;
-            d = LabRandomDir(rng);
+            const float z = std::uniform_real_distribution<float>(zLo, zHi)(rng);
+            const float h = std::sqrt(std::max(0.f, 1.f - z * z)), nh = std::sqrt(n.X * n.X + n.Y * n.Y);
+            const float den = h * nh;
+            const float q = den > 1e-6f ? (std::cos(cone * kDeg) - z * n.Z) / den : -1.f;
+            if (q > 1.0001f || (den <= 1e-6f && z * n.Z < std::cos(cone * kDeg) - 1e-5f)) continue;
+            const float half = q <= -1.f ? kPi : std::acos(std::clamp(q, -1.f, 1.f));
+            const float a = std::atan2(n.Y, n.X) + std::uniform_real_distribution<float>(-half, half)(rng);
+            d = V(h * std::cos(a), h * std::sin(a), z);
+            break;
         }
         Vector out = Scale(d, r);
         if (out.Z < lowest)
@@ -402,7 +447,9 @@ namespace airlabs
         s.carVel = V(0.f, 0.f, 0.f);
         s.ballVel = V(0.f, 0.f, 0.f);
         s.ballPos = LabSpawnPoint(rng, p, nose);
+        s.spawnValid = LabSpawnAllowed(s.ballPos, p, nose);
         const Vector w = LabPickLaunch(rng, s.ballPos, p, LabNextSpeed(rng, p), kLabReactSecWait);
+        s.launchValid = LabLaunchAllowed(s.ballPos, w, p);
         s.launchSpeed = Len(w);
         s.launchDir = Scale(w, 1.f / std::max(1.f, s.launchSpeed));
         s.free = false;

@@ -444,17 +444,32 @@ pitches at 2.4 rad/s; off the front corner the ball leaves at 1802, 1076 of it s
   the pass's position, speed and direction, with an estimated reachable meeting point. RocketSim
   checks a glancing touch. The planner then projects the outgoing flight with Respawn's zero
   gravity and ball drag,
-  looking for a 15–40 degree redirect. The ring appears **1000–1500 uu from your car**, measured
-  when it spawns. **Ring size** changes the full opening width from 250 to 2000 uu (700 by default);
+  looking for a redirect within **Maximum redirect angle** (40 degrees by default). **Goal spawn
+  distance** selects one exact distance from your car at spawn: 500–3000 uu, default 1250.
+  The opening always faces your view; scoring uses that same moving plane, and moving the camera
+  alone cannot score. **Ring size** changes the full opening width from 250 to 2000 uu (700 by default);
   the whole ball must fit through after a touch to score. The ring turns green and the HUD counts
   redirects. A touched ball has at least 3.5 s after the latest touch to reach it (longer when the
   checked shot needs more time), with boundary/floor
-  replacement suspended during the shot. Restrictive settings may use a simpler fallback target;
-  the approach is an estimate, not a guarantee that every flight path is reachable.
+  replacement suspended during the shot. Unsuitable passes are retried; if no checked goal or
+  valid spawn fits, the HUD asks you to change the settings. The distance/angle are not silently
+  changed. The approach is an estimate, not proof of a steerable controller trajectory.
 - **Ring motion (separate toggle):** ON keeps the ring fixed in the hidden world and shows it
   relative to your moving car, like the ball. OFF keeps the ring at the same offset from your car.
   Scoring follows the selected motion. Switching preserves its displayed position. Both the ring
   and its motion have their own switches, so either behaviour can be tested.
+- **Spawn preview (optional, off by default):** on the Respawn page, turn on Spawn preview to
+  open a movable, resizable diagram and an in-world overlay. Drag the diagram to orbit it.
+  **Blue** lights the allowed ball spawn region on inner/outer latitude-longitude grids. **Amber**
+  shows valid launch directions from the selected example ball; the bold path is the one used
+  for the **purple checked goal positions**. The first purple opening shows the selected ring
+  size; smaller purple marks are alternative goal centres. Each layer has its own switch.
+  Cone, height, range, floor, speed, pass distance, steepness, wait, goal distance/size/angle and
+  motion edits update the preview without restarting. Goal checks build incrementally; old
+  purple examples clear immediately when settings change. New example chooses another setup.
+  Preview uses a separate example and never changes the current drill or its next random ball.
+  Ball spawn cone is measured from your nose at spawn. Minimum pass distance is the intended
+  path's minimum miss distance from your stationary car centre; 0 allows direct passes.
 - **Constant:** the ball never stops. At the edge of the bubble (or the floor) it bounces back
   inwards, and each bounce is a fresh start like a new ball: it comes back at the set speed and
   your own speed resets. (Earlier, your hidden speed stayed at the 2300 cap, so boosting at the
@@ -560,6 +575,10 @@ PC clock if it ever looks wrong; the Readout shows which is in use.
 | `airlabs_lab_redirect_ring 1` / `0` | Respawn target ring on (default) / off |
 | `airlabs_lab_ring_motion 1` / `0` | Ring fixed in hidden world (default) / fixed offset from car |
 | `airlabs_lab_ring_size` | Ring opening width, 250–2000 uu (700 by default) |
+| `airlabs_lab_goal_distance` | Exact goal distance at spawn, 500–3000 uu (1250 by default) |
+| `airlabs_lab_redirect_angle` | Maximum redirect turn, 5–90 degrees (40 by default) |
+| `airlabs_lab_preview 1` / `0` | Live Respawn preview on / off (default) |
+| `airlabs_lab_preview_balls`, `_paths`, `_goals` | Individual preview layers (on by default) |
 | `airlabs_lab_botprobe` | Test: spawn a bot car and hold it next to you for 20 s |
 | `airlabs_watch <run>` | Watch a leaderboard run's replay (the number is the run's id on the server) |
 | `airlabs_lb_url <url>` | The leaderboard server (only change this for a server of your own) |

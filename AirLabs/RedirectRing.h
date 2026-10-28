@@ -33,8 +33,43 @@ namespace airlabs
         return Len(Sub(crossing, centre)) <= radius - kLabBallRadius;
     }
 
+    inline bool LabSphereCrossing(const Vector& a, const Vector& b, const Vector& centre, float radius, float& t)
+    {
+        const Vector x = Sub(a, centre), v = Sub(b, a);
+        const float aa = Dot(v, v), bb = 2.f * Dot(x, v), cc = Dot(x, x) - radius * radius;
+        const float disc = bb * bb - 4.f * aa * cc;
+        if (aa < 1e-8f || disc < 0.f) return false;
+        for (float root : { (-bb - std::sqrt(disc)) / (2.f * aa), (-bb + std::sqrt(disc)) / (2.f * aa) })
+            if (root >= 0.f && root <= 1.f) { t = root; return true; }
+        return false;
+    }
+
+    // A ring that faces the viewer can rotate or translate between ticks. Require actual
+    // ball motion THROUGH the opening: changing only the camera cannot award a goal.
+    inline bool LabFacingRingCrossed(const Vector& before, const Vector& after,
+        const Vector& centreBefore, const Vector& centreAfter, const Vector& viewerBefore,
+        const Vector& viewerAfter, float radius)
+    {
+        const Vector n0 = Norm(Sub(centreBefore, viewerBefore)), n1 = Norm(Sub(centreAfter, viewerAfter));
+        const Vector x0 = Sub(before, centreBefore), x1 = Sub(after, centreAfter);
+        const float a = Dot(x0, n0), b = Dot(x1, n1);
+        if (a * b > 0.f || std::fabs(b - a) < 1e-5f || radius <= kLabBallRadius) return false;
+        if (std::fabs(Dot(Sub(x1, x0), Norm(Add(n0, n1)))) < 1e-4f) return false;
+        float lo = 0.f, hi = 1.f;
+        for (int i = 0; i < 12; ++i)
+        {
+            const float t = (lo + hi) * 0.5f;
+            const Vector n = Norm(Add(Scale(n0, 1.f - t), Scale(n1, t)));
+            const float d = Dot(Add(Scale(x0, 1.f - t), Scale(x1, t)), n);
+            if ((a <= 0.f) == (d <= 0.f)) lo = t; else hi = t;
+        }
+        const float t = (lo + hi) * 0.5f;
+        return Len(Add(Scale(x0, 1.f - t), Scale(x1, t))) <= radius - kLabBallRadius;
+    }
+
     inline LabRedirectPlan LabPlanRedirect(RocketSim::Arena* live, RocketSim::Car* liveCar,
-                                           const LabParams& p, const LabState& s, std::mt19937& rng)
+                                           const LabParams& p, const LabState& s, std::mt19937& rng,
+                                           int attempts = 128)
     {
         using namespace RocketSim;
         constexpr float dt = 1.f / 120.f;
@@ -86,10 +121,9 @@ namespace airlabs
         probe->SetMutatorConfig(live->GetMutatorConfig());
         Car* pc = probe->AddCar(Team::BLUE, liveCar->config);
         LabRedirectPlan best;
-        float bestPenalty = 1e9f;
         const float nose = liveCar->config.hitboxPosOffset.x + liveCar->config.hitboxSize.x * 0.5f;
         const float ballRadius = live->GetMutatorConfig().ballRadius;
-        for (int attempt = 0; attempt < 128; ++attempt)
+        for (int attempt = 0; attempt < attempts; ++attempt)
         {
             const float a = std::uniform_real_distribution<float>(0.f, 2.f * kPi)(rng);
             const Vector side = Add(Scale(around.right, std::cos(a)), Scale(around.up, std::sin(a)));
@@ -130,35 +164,34 @@ namespace airlabs
             const Vector outRel = Sub(FromRs(probe->ball->GetState().vel), afterCoast);
             if (Len(outRel) < 200.f) continue;
             const float turn = AngleDeg(travel, outRel);
-            if (turn < 8.f || turn > 65.f) continue;
-            const float penalty = turn < 15.f ? 15.f - turn : turn > 40.f ? turn - 40.f : 0.f;
-            if (penalty > bestPenalty) continue;
+            if (turn < std::min(15.f, p.maxRedirectAngle * 0.5f) || turn > p.maxRedirectAngle) continue;
             cs = pc->GetState();
             Vector goalCarPos = FromRs(cs.pos), goalCarVel = FromRs(cs.vel);
             Vector flightPos = FromRs(probe->ball->GetState().pos), flightVel = FromRs(probe->ball->GetState().vel);
             // The checked touch is over. In this empty arena the remaining flight is just
             // drag, gravity and the speed cap; do not run hundreds of extra Bullet ticks.
+            Vector previousGoal = p.ringRelativeMotion ? Add(contact, flightPos) :
+                Add(FromRs(initialCar.pos), Sub(flightPos, goalCarPos));
             for (int i = 0; i < 960; ++i)
             {
                 const Vector goal = p.ringRelativeMotion ? Add(contact, flightPos) :
                     Add(FromRs(initialCar.pos), Sub(flightPos, goalCarPos));
-                const float distance = Len(Sub(goal, FromRs(initialCar.pos)));
-                // Measure the opening from the car WHEN IT APPEARS, in either motion mode.
-                // Leave some flight after the touch so the target is not on the contact itself.
-                if (i >= 48 && distance >= 1000.f && distance <= 1500.f)
+                float t = 0.f;
+                if (i >= 48 && LabSphereCrossing(previousGoal, goal, FromRs(initialCar.pos), p.goalDistance, t))
                 {
-                    {
                         best.checked = true;
-                        best.goal = goal;
-                        best.normal = Norm(p.ringRelativeMotion ? flightVel : Sub(flightVel, goalCarVel));
+                        best.goal = Add(previousGoal, Scale(Sub(goal, previousGoal), t));
+                        const Vector viewer = p.ringRelativeMotion ? Add(contact, goalCarPos) : FromRs(initialCar.pos);
+                        best.normal = Norm(Sub(best.goal, viewer));
+                        const Vector through = p.ringRelativeMotion ? flightVel : Sub(flightVel, goalCarVel);
+                        if (std::fabs(Dot(Norm(through), best.normal)) < 0.15f) { best.checked = false; break; }
                         best.ballPos = contact; best.ballVel = incoming;
                         best.carPos = carAt; best.carVel = approach; best.carBasis = facing;
                         best.turn = turn; best.flightSec = (hitTicks + i) * dt;
-                        best.distance = distance;
-                        bestPenalty = penalty;
-                    }
-                    break;
+                        best.distance = Len(Sub(best.goal, FromRs(initialCar.pos)));
+                        return best;
                 }
+                previousGoal = goal;
                 flightVel = Add(Scale(flightVel, drag), Scale(gravity, dt));
                 if (p.speedLimit) CapSpeed(flightVel, RLConst::BALL_MAX_SPEED);
                 flightPos = Add(flightPos, Scale(flightVel, dt));
@@ -166,20 +199,8 @@ namespace airlabs
                 if (p.speedLimit) CapSpeed(goalCarVel, RLConst::CAR_MAX_SPEED);
                 goalCarPos = Add(goalCarPos, Scale(goalCarVel, dt));
             }
-            if (best.checked && bestPenalty == 0.f) return best;
         }
-        if (best.checked) return best;
-        // Unusual restrictive settings: offer a shallow target rather than no ring at all.
-        // This fallback is geometric, not a solver-checked promise of a reachable shot.
-        const Vector out = RotateAbout(travel, around.up, 20.f * kDeg);
-        const float seconds = std::clamp(1000.f / std::max(400.f, Len(inRel)), 0.5f, 1.5f);
-        best.goal = Add(contact, Add(Scale(Add(coast, Scale(out, std::max(400.f, Len(inRel)))), seconds),
-                                     Scale(gravity, 0.5f * seconds * seconds)));
-        best.normal = out; best.turn = 20.f; best.flightSec = seconds;
-        if (!p.ringRelativeMotion)
-            best.goal = Add(FromRs(initialCar.pos), Add(Sub(contact, cp), Scale(out, std::max(400.f, Len(inRel)) * seconds)));
-        best.distance = std::uniform_real_distribution<float>(1000.f, 1500.f)(rng);
-        best.goal = Add(FromRs(initialCar.pos), Scale(Norm(Sub(best.goal, FromRs(initialCar.pos))), best.distance));
+        // Do not invent an unchecked goal or silently change the chosen distance/angle.
         return best;
     }
 }

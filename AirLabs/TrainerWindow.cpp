@@ -469,6 +469,7 @@ void AirLabs::Render()
                                                              ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
         DrawTrainerWindow();
     ImGui::End();
+    if (windowOpen && uiPage == 5) DrawLabPreviewWindow();
     ImGui::PopStyleVar(vars);
     ImGui::PopStyleColor(colors);
     if (closeRequested)
@@ -1697,6 +1698,10 @@ void AirLabs::WinLab()
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("ON: a fixed target in the hidden world; it moves on screen relative to your flight.\nOFF: the ring stays at the same offset from your car.\nGoal detection follows the ring you see. Switching preserves its current position.");
             UiSliderF("Ring size##lab", "The full opening width. The whole ball must fit through. Changes apply to the visible ring and scoring straight away.",
                       "airlabs_lab_ring_size", 250.f, 2000.f, "%.0f uu wide");
+            UiSliderF("Goal spawn distance##lab", "One exact distance from your car when the goal appears. The planner finds a checked redirect at this distance.",
+                      "airlabs_lab_goal_distance", 500.f, 3000.f, "%.0f uu");
+            UiSliderF("Maximum redirect angle##lab", "The largest change from the incoming ball direction. Wider angles allow more target positions.",
+                      "airlabs_lab_redirect_angle", 5.f, 90.f, "%.0f deg");
         }
     }
 
@@ -1721,7 +1726,7 @@ void AirLabs::WinLab()
             UiSliderF("Bubble radius##lab", "The ball always stays within this distance of your car. On the standard field it also stops at the floor, walls and roof (about 850 uu up or down); the space map has none.",
                       "airlabs_lab_bubble", 300.f, 2000.f, "%.0f uu");
         }
-        UiSliderF("Around your nose##lab", "New balls appear within this angle of where your nose points. 180 = anywhere, 90 = never behind you.",
+        UiSliderF("Ball spawn cone##lab", "New balls appear within this angle of where your nose points. 180 = anywhere, 90 = never behind you. Blue preview shows the permitted region.",
                   "airlabs_lab_cone", 10.f, 180.f, "%.0f deg");
         UiSliderF("Lowest##lab", "How far below (negative) or above the horizon a new ball can appear.", "airlabs_lab_height_min", -90.f, 90.f, "%.0f deg");
         UiSliderF("Highest##lab", "Set both to 0 for balls level with the horizon only.", "airlabs_lab_height_max", -90.f, 90.f, "%.0f deg");
@@ -1734,7 +1739,7 @@ void AirLabs::WinLab()
     // ---- run ----
     SectionLabel(small, "RUN");
     UiSliderF("Run length##lab", "How long a run lasts, then it shows how you did. 0 = endless.", "airlabs_lab_run", 0.f, 300.f, "%.0f s");
-    UiSliderF("Pass distance##lab", "A launched or bounced ball never heads straight at you: its path passes at least this far from your car's centre, so you always have to move to reach it. Bigger is harder.",
+    UiSliderF("Minimum pass distance##lab", "The planned path must miss your stationary car centre by at least this distance. 0 allows direct passes. Amber preview shows valid examples.",
               "airlabs_lab_pass", 0.f, 600.f, "%.0f uu");
     if (p.motion == kLabRespawn)
         UiSliderF("Wait before launch##lab", "How long a new ball waits (showing its arrow) before it takes off. Your speed resets with each new ball.",
@@ -1763,6 +1768,28 @@ void AirLabs::WinLab()
         SetCvarI("airlabs_lab_redirect_ring", 1);
         SetCvarI("airlabs_lab_ring_motion", 1);
         SetCvarF("airlabs_lab_ring_size", 700.f);
+        SetCvarF("airlabs_lab_goal_distance", 1250.f);
+        SetCvarF("airlabs_lab_redirect_angle", 40.f);
+    }
+
+    if (p.motion == kLabRespawn)
+    {
+        SectionLabel(small, "LIVE SPAWN PREVIEW");
+        const bool preview = *labPreviewEnabled;
+        if (Chip("##labpreview", preview ? "Spawn preview: ON" : "Spawn preview: OFF", preview, bold))
+            SetCvarI("airlabs_lab_preview", preview ? 0 : 1);
+        if (*labPreviewEnabled)
+        {
+            auto layer = [&](const char* id, const char* label, const char* cvar, bool active) {
+                ImGui::SameLine(0, 8);
+                if (Chip(id, label, active, small)) SetCvarI(cvar, active ? 0 : 1);
+            };
+            layer("##pvballs", "Ball spawns", "airlabs_lab_preview_balls", *labPreviewBalls);
+            layer("##pvpaths", "Ball paths", "airlabs_lab_preview_paths", *labPreviewPaths);
+            layer("##pvgoals", "Goal positions", "airlabs_lab_preview_goals", *labPreviewGoals);
+            if (LinkButton("##pvnew", "New example", small)) ++labPreviewSeed;
+            ImGui::TextWrapped("Blue: ball spawn region. Amber: launch directions from the example ball. Purple: checked goal positions for the bold amber pass. The movable preview window updates as you edit.");
+        }
     }
 }
 

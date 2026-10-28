@@ -7,6 +7,41 @@ shipped, the rules the owner works by, and what's happening right now.
 
 Read this section first; the rest of the file is the background.
 
+### Live spawn preview and viewer-facing goals (2026-10-29)
+
+- Owner approved the full preview plan. Respawn has an optional master Spawn preview toggle
+  (off by default), plus Ball spawns / Ball paths / Goal positions layer switches and New example.
+  A movable ImGui window stays visible while editing, including before Start and in the main
+  menu. Drag its diagram to orbit. In Freeplay, the same geometry also draws in the world.
+- Blue latitude-longitude inner/outer shells light the region allowed by cone, height, distance
+  and floor. Amber paths originate at the selected example ball and share play's launch checks.
+  The bold amber pass drives purple checked goal candidates. The first purple opening previews
+  the chosen ring size; other candidates are small marks. No stale goals survive settings edits.
+- `LabPreview.h` caches by geometry/settings/nose/example seed and checks one goal example per
+  game-thread update. UI reads immutable snapshots under a mutex. All RocketSim work is queued
+  through GameWrapper::Execute, not done on ImGui's thread. Preview has separate randomness and
+  restores the global car speed cap. It uses the player's nearest hitbox preset when available.
+- New single-value Goal spawn distance: 500-3000 uu, default 1250. Maximum redirect angle:
+  5-90 degrees, default 40. No random goal distance range or unchecked fallback. The planner finds
+  an exact crossing of the chosen distance sphere; actual passes retry up to four times. Invalid
+  settings stop the attempt with a HUD explanation until a relevant setting changes.
+- Rings face the viewer every physics tick, including both ring-motion modes. The crossing
+  calculation follows the rotating/moving opening and requires actual relative ball movement,
+  so camera movement alone cannot score. Open rings accept a touched ball from either side.
+- Ball spawn cone and Minimum pass distance are the clarified UI labels. Shared spawn sampling
+  now handles exact height bands (including level-only) and cone intersections directly. Live
+  Respawn rejects impossible spawn/launch combinations rather than silently using a looser fit.
+- Local compilation, labworld and legacy boostlab checks passed. Tests cover live changes,
+  lit-region/path validity, fixed goal distance, default checked goals, separate speed-cap state,
+  viewer-facing crossings, no camera-only goals, both gravity modes and existing physics.
+  Off-game ImGui mesh renders of wide/narrow configurations were inspected. Full Release DLL
+  linked with PostBuildEventUseInBuild=false; no automatic in-game reload was run. Final visual
+  polish was rendered and inspected, and the final Release DLL build passed. Actual in-game
+  appearance/feel still needs the owner. Checkpoint branch: codex/boost-lab-normal-gravity.
+- Repeatable preview QA now lives in tools/lab_preview_ui.cpp and tools/render_lab_preview.py.
+  The harness uses the real ImGui diagram drawing code and dumps a mesh/font atlas; the Python
+  script rasterizes it with NumPy/Pillow. Outputs are under build/qa, not public source assets.
+
 ### Current Respawn adjustments (2026-10-29)
 
 - Owner confirmed the ring must appear 1000-1500 uu FROM THE CAR WHEN IT APPEARS, not from the

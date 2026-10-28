@@ -489,6 +489,8 @@ void AirLabs::RegisterCvars()
     labMotion = mkI(kLabRespawn); labBubble = mkF(800.f); labPass = mkF(250.f); labSpeed = mkF(800.f); labHang = mkF(1.25f);
     labSpawnMin = mkF(1500.f); labSpawnMax = mkF(2000.f);
     labRingSize = mkF(700.f);
+    labGoalDistance = mkF(1250.f); labRedirectAngle = mkF(40.f);
+    labPreviewEnabled = mkB(false); labPreviewBalls = mkB(true); labPreviewPaths = mkB(true); labPreviewGoals = mkB(true);
     labSpeedMin = mkF(400.f); labSpeedMax = mkF(1400.f); labCurve = mkF(0.f); labRun = mkF(0.f); labCone = mkF(180.f);
     labHeightMin = mkF(-90.f); labHeightMax = mkF(90.f); labSteep = mkF(45.f); labFloor = mkF(300.f);
     labDynamic = mkB(false); labDust = mkB(false); labMarkers = mkB(false); labNavball = mkB(false); labSpeedLimit = mkB(true); labKeepFlipDrift = mkB(true); labFlips = mkI(kLabFlipsReal); labDebug = mkB(true);
@@ -571,6 +573,12 @@ void AirLabs::RegisterCvars()
     reg("airlabs_lab_redirect_ring", "1", "Boost Lab, Respawn: a target ring for each pass; redirect a touched ball through it", 0.f, 1.f).bindTo(labRedirectRing);
     reg("airlabs_lab_ring_motion", "1", "Respawn ring motion: 1 = fixed in the hidden world, 0 = fixed offset from your car", 0.f, 1.f).bindTo(labRingMotion);
     reg("airlabs_lab_ring_size", "700", "Respawn ring size: opening diameter in uu", 250.f, 2000.f).bindTo(labRingSize);
+    reg("airlabs_lab_goal_distance", "1250", "Respawn: exact goal distance from your car when it appears (uu)", 500.f, 3000.f).bindTo(labGoalDistance);
+    reg("airlabs_lab_redirect_angle", "40", "Respawn: maximum redirect turn angle (degrees)", 5.f, 90.f).bindTo(labRedirectAngle);
+    reg("airlabs_lab_preview", "0", "Live Respawn spawn preview", 0.f, 1.f).bindTo(labPreviewEnabled);
+    reg("airlabs_lab_preview_balls", "1", "Blue ball spawn region in the preview", 0.f, 1.f).bindTo(labPreviewBalls);
+    reg("airlabs_lab_preview_paths", "1", "Amber ball launch paths in the preview", 0.f, 1.f).bindTo(labPreviewPaths);
+    reg("airlabs_lab_preview_goals", "1", "Purple checked goal examples in the preview", 0.f, 1.f).bindTo(labPreviewGoals);
     reg("airlabs_lab_flips", "1", "Boost Lab flips: 0 = off, 1 = real (one for each new ball, one for each flip reset), 2 = infinite", 0.f, 2.f).bindTo(labFlips);
     reg("airlabs_lab_debug", "1", "Boost Lab: a debug line on the HUD (jump presses, flips, flip resets, what the game says)", 0.f, 1.f).bindTo(labDebug);
     reg("airlabs_lab_dust", "0", "Boost Lab: specks of dust that streak past as you move", 0.f, 1.f).bindTo(labDust);
@@ -1633,6 +1641,8 @@ LabParams AirLabs::LabParamsNow() const
     p.redirectRing = *labRedirectRing;
     p.ringRelativeMotion = *labRingMotion;
     p.ringRadius = std::clamp(*labRingSize, 250.f, 2000.f) * 0.5f;
+    p.goalDistance = std::clamp(*labGoalDistance, 500.f, 3000.f);
+    p.maxRedirectAngle = std::clamp(*labRedirectAngle, 5.f, 90.f);
     p.flips = std::clamp(*labFlips, 0, 2);
     return p;
 }
@@ -1778,6 +1788,8 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
         const bool flippingBefore = labWorld.GetCarState().isFlipping;
         const Vector relBefore = labWorld.s.ballPos;
         const int ballsBefore = labWorld.s.balls, bouncesBefore = labWorld.s.bounces;
+        CameraWrapper labCam = gameWrapper->GetCamera();
+        if (!labCam.IsNull()) labWorld.SetViewOffset(Sub(labCam.GetLocation(), pinLocation));
         labWorld.Step(p, in, rng, gameTime - (steps - 1 - i) / 120.0);
         // A flip starting, and 0.7 s later: how the ball moves relative to you (to tell a real
         // fling from the camera swinging round with the car).
@@ -1854,7 +1866,9 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
     if (!ball.IsNull())
     {
         Vector rel = lab.ballPos;
-        if (!OnSpaceMap()) // the standard field has walls, a floor and a roof: keep it inside
+        const bool fits = lab.spawnValid && lab.launchValid && lab.goalValid;
+        if (!fits) rel = V(0.f, 0.f, -50000.f); // no out-of-settings ball while awaiting a valid setup
+        if (fits && !OnSpaceMap()) // the standard field has walls, a floor and a roof: keep it inside
         {
             float l = Len(rel), lim = ArenaLimit(pinLocation, Norm(rel));
             if (l > lim) rel = Scale(Norm(rel), lim);
@@ -2005,6 +2019,7 @@ void AirLabs::DrawLab(CanvasWrapper& canvas, const Vector2& screen)
         if (gameTime - labTouchFlash < 0.35) ringCol = kColGood;
         Vector2F bc;
         if (lab.phase == kLabDone) {}
+        else if (!lab.spawnValid || !lab.launchValid || !lab.goalValid) {}
         else if (onScreen(ballW, bc))
         {
             if (lab.phase == kLabHang) // only a waiting ball gets a ring (yellow, pulsing); a flying ball has none
@@ -2032,7 +2047,7 @@ void AirLabs::DrawLab(CanvasWrapper& canvas, const Vector2& screen)
             canvas.DrawLine(tip, Vector2F{ base.X - side.X, base.Y - side.Y }, 3.f);
             canvas.DrawLine(Vector2F{ base.X + side.X, base.Y + side.Y }, Vector2F{ base.X - side.X, base.Y - side.Y }, 3.f);
         }
-        if (lab.phase == kLabHang)
+        if (lab.phase == kLabHang && lab.spawnValid && lab.launchValid && lab.goalValid)
         {
             const Vector a0 = Add(ballW, Scale(lab.launchDir, kLabBallRadius + 15.f));
             const Vector a1 = Add(ballW, Scale(lab.launchDir, kLabBallRadius + 15.f + 120.f + lab.launchSpeed * 0.2f));
@@ -2060,6 +2075,9 @@ void AirLabs::DrawLab(CanvasWrapper& canvas, const Vector2& screen)
     auto add = [&](const std::string& t, const LinearColor& c = kColText, float sc = 1.3f) { L.push_back({ t, c, sc }); };
     const LabParams p = LabParamsNow();
     add(std::string("BOOST LAB (TEST)  |  ") + (p.motion == kLabConstant ? "Constant" : "Respawn"), kColTitle, 1.4f);
+    if (p.motion == kLabRespawn && (!lab.spawnValid || !lab.launchValid || !lab.goalValid))
+        add(!lab.spawnValid ? "No spawn fits: widen the cone or height band." : !lab.launchValid ? "No pass fits these settings." :
+            "No checked goal fits: change distance/angle.", kColWarn, 1.1f);
     if (p.motion == kLabRespawn && p.redirectRing) add(Fmt("Redirects  %.0f", lab.redirects), kColTitle);
     if (lab.phase == kLabDone)
     {
@@ -3006,6 +3024,11 @@ void AirLabs::Render(CanvasWrapper canvas)
     if (!gameWrapper->IsInFreeplay()) return;
     if (*laserEnabled) DrawLaser(canvas);
     Vector2 screen = canvas.GetSize();
+    if (*labPreviewEnabled && (labOn || (windowOpen && uiPage == 5)))
+    {
+        QueueLabPreview();
+        DrawLabPreviewWorld(canvas);
+    }
     if (labOn)
     {
         DrawLab(canvas, screen);

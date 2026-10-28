@@ -18,6 +18,7 @@
     <ClCompile Include="AirLabs.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="Leaderboard.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="TrainerWindow.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="LabPreview.cpp"><Filter>Source</Filter></ClCompile>
     <ClCompile Include="imgui\imgui.cpp"><Filter>imgui</Filter></ClCompile>
     <ClCompile Include="imgui\imgui_draw.cpp"><Filter>imgui</Filter></ClCompile>
     <ClCompile Include="imgui\imgui_widgets.cpp"><Filter>imgui</Filter></ClCompile>
@@ -136,6 +137,8 @@
     <ClInclude Include="BoostLab.h"><Filter>Source</Filter></ClInclude>
     <ClInclude Include="LabWorld.h"><Filter>Source</Filter></ClInclude>
     <ClInclude Include="RedirectRing.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="LabPreview.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="LabPreviewDraw.h"><Filter>Source</Filter></ClInclude>
     <ClInclude Include="imgui\imconfig.h"><Filter>imgui</Filter></ClInclude>
     <ClInclude Include="imgui\imgui.h"><Filter>imgui</Filter></ClInclude>
     <ClInclude Include="imgui\imgui_internal.h"><Filter>imgui</Filter></ClInclude>

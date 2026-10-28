@@ -46,6 +46,7 @@ namespace airlabs
         bool resetNow = false;
         const char* carName = "Octane";
         LabRedirectPlan redirectPlan; // planning witness for off-game checks, in hidden-world coordinates
+        void SetViewOffset(const Vector& offset) { viewOffset = offset; }
 
         ~LabWorld() { Clear(); }
 
@@ -129,6 +130,15 @@ namespace airlabs
             }
             ApplySettings(p);
             s.ringRadius = std::clamp(p.ringRadius, 125.f, 1000.f);
+            const auto key = LabGeometryKey(p, V(0.f, 0.f, 0.f));
+            if (p.motion == kLabRespawn && (!s.spawnValid || !s.launchValid || !s.goalValid))
+            {
+                if (key != lastGeometry) NewBall(p, rng, now);
+                lastGeometry = key;
+                Mirror();
+                return;
+            }
+            lastGeometry = key;
             if (p.motion != kLabRespawn || !p.redirectRing) s.ringActive = false;
             else if (!s.ringActive && s.phase == kLabHang) MakeRedirect(p, rng, now);
             if (s.ringActive && ringMovesRelative != p.ringRelativeMotion)
@@ -165,6 +175,7 @@ namespace airlabs
             const bool onBallBefore = car->GetState().isOnGround;
             const Vector ballWorldBefore = FromRs(arena->ball->GetState().pos);
             const Vector carWorldBefore = FromRs(car->GetState().pos);
+            const Vector centreBefore = FromRs(ringMovesRelative ? ringWorld : car->GetState().pos + ringAnchorRelative);
             arena->Step(1);
 
             // ---- what happened ----
@@ -191,9 +202,9 @@ namespace airlabs
                 if (p.motion == kLabRespawn) { s.phase = kLabTouched; s.phaseEnd = now + (s.ringActive ? ringShotWindow : kLabTouchedSec); }
             }
             if (s.ringActive && !s.ringScored && s.phase == kLabTouched &&
-                LabRingCrossed(ringMovesRelative ? ballWorldBefore : Sub(ballWorldBefore, carWorldBefore),
-                               ringMovesRelative ? FromRs(arena->ball->GetState().pos) : FromRs(arena->ball->GetState().pos - car->GetState().pos),
-                               ringMovesRelative ? FromRs(ringWorld) : FromRs(ringAnchorRelative), s.ringNormal, s.ringRadius))
+                LabFacingRingCrossed(ballWorldBefore, FromRs(arena->ball->GetState().pos), centreBefore,
+                    FromRs(ringMovesRelative ? ringWorld : car->GetState().pos + ringAnchorRelative),
+                    Add(carWorldBefore, viewOffset), Add(FromRs(car->GetState().pos), viewOffset), s.ringRadius))
             {
                 s.ringScored = s.ringScoredNow = true;
                 ++s.redirects;
@@ -257,6 +268,7 @@ namespace airlabs
             PlaceBall(rel, ballVel);
             s.phase = kLabFlying;
             s.free = false;
+            s.spawnValid = s.launchValid = s.goalValid = true; // explicit off-game situation
             Mirror();
         }
 
@@ -281,15 +293,33 @@ namespace airlabs
         RocketSim::Vec ringAnchorRelative{ 0, 0, 0 };
         bool ringMovesRelative = true;
         float ringShotWindow = 3.5f;
+        Vector viewOffset = V(0.f, 0.f, 0.f);
+        decltype(LabGeometryKey(LabParams{}, V(0.f, 0.f, 0.f))) lastGeometry{};
 
         void MakeRedirect(const LabParams& p, std::mt19937& rng, double now)
         {
             s.ringActive = p.motion == kLabRespawn && p.redirectRing;
             s.ringScored = s.ringScoredNow = false;
+            s.goalValid = true;
+            lastGeometry = LabGeometryKey(p, V(0.f, 0.f, 0.f));
             if (!s.ringActive) return;
             LabParams planning = p;
             planning.hangSec = static_cast<float>(std::max(0.0, s.phaseEnd - now));
-            redirectPlan = LabPlanRedirect(arena, car, planning, s, rng);
+            const int balls = s.balls;
+            for (int attempt = 0; attempt < 4; ++attempt)
+            {
+                if (s.spawnValid && s.launchValid) redirectPlan = LabPlanRedirect(arena, car, planning, s, rng);
+                else redirectPlan = LabRedirectPlan{};
+                if (redirectPlan.checked) break;
+                if (attempt < 3)
+                {
+                    LabRespawn(s, rng, p, CarBasis().forward, now);
+                    s.balls = balls;
+                    PlaceBall(s.ballPos, V(0.f, 0.f, 0.f));
+                }
+            }
+            s.goalValid = redirectPlan.checked;
+            if (!s.goalValid) { s.ringActive = false; return; }
             ringShotWindow = std::max(3.5f, redirectPlan.flightSec + 0.5f);
             ringWorld = ToRs(redirectPlan.goal);
             ringAnchorRelative = ringWorld - car->GetState().pos;
@@ -320,6 +350,7 @@ namespace airlabs
             s.ballVel = FromRs(bs.vel);
             s.ballPos = Sub(FromRs(bs.pos), FromRs(cs.pos));
             if (s.ringActive) s.ringPos = FromRs(ringMovesRelative ? ringWorld - cs.pos : ringAnchorRelative);
+            if (s.ringActive) s.ringNormal = Norm(Sub(s.ringPos, viewOffset));
             ballSpin = FromRs(bs.angVel);
             carHasFlip = p_flipsInfinite || cs.HasFlipOrJump() || cs.HasFlipReset();
             s.flipReady = carHasFlip;
