@@ -7,6 +7,25 @@ shipped, the rules the owner works by, and what's happening right now.
 
 Read this section first; the rest of the file is the background.
 
+### Current Respawn adjustments (2026-10-29)
+
+- Owner confirmed the ring must appear 1000-1500 uu FROM THE CAR WHEN IT APPEARS, not from the
+  predicted ball contact. The planner now measures that range in both motion modes, and the
+  geometric fallback also respects it. A checked long shot gets enough time to reach its target.
+- Respawn now has gravity OFF for both bodies. Constant/Volley keeps normal gravity. The planner
+  reads the live arena's gravity instead of assuming -650, so target prediction matches play.
+- Ring size is an opening DIAMETER slider, 250-2000 uu, default 700 (`airlabs_lab_ring_size`).
+  Rendering and whole-ball crossing checks use the same radius; changes apply to the current ring.
+- Removed post-hit speed displays globally: both the TOUCH speed popup and Last touch HUD line.
+  Touch counts, goals and flip-reset feedback remain. No ball/car contact physics was changed.
+- Changes are local; Release/x64 compilation and the updated labworld suite pass. All 24 sampled
+  passes produced checked 15-40 degree redirects with rings 1000-1500 uu from the car at spawn,
+  and all 24 replayed shots scored in both motion settings. Ring creation was reduced from up to
+  18.3 ms to 2.7 ms in the sampled checks by projecting empty-arena flight after a RocketSim touch.
+  Tests also cover live ring resizing, whole-ball clearance, moving-ring toggle continuity,
+  zero gravity in Respawn and normal gravity in Constant, plus existing physics regressions.
+  No in-game test yet. Earlier gravity/ring-distance descriptions below are historical.
+
 ### Latest: Respawn redirect ring and settings (2026-10-29)
 
 - The owner requested no curve in Respawn, default spawn distance 1500-2000 uu, markers off and

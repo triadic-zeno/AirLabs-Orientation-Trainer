@@ -1,6 +1,7 @@
 #pragma once
 // Respawn's redirect target. Planning is approximate for the player's approach, but proposed
-// touches and the outgoing ball's flight are checked with RocketSim. No live physics is edited.
+// contacts are checked with RocketSim. Remaining empty-arena flight is projected using its
+// drag/gravity/caps and verified against RocketSim in tests. No live physics is edited.
 #include <memory>
 
 namespace airlabs
@@ -11,7 +12,7 @@ namespace airlabs
         Vector goal = V(0.f, 0.f, 0.f), normal = V(1.f, 0.f, 0.f); // hidden-world coordinates
         Vector ballPos{}, ballVel{}, carPos{}, carVel{};
         Basis carBasis{};
-        float turn = 0.f, flightSec = 1.f, distance = 1000.f;
+        float turn = 0.f, flightSec = 1.f, distance = 1250.f; // ring distance from car at spawn
     };
 
     inline Basis LabFacing(const Vector& f)
@@ -37,6 +38,7 @@ namespace airlabs
     {
         using namespace RocketSim;
         constexpr float dt = 1.f / 120.f;
+        const Vector gravity = FromRs(live->GetMutatorConfig().gravity);
         const auto initialCar = liveCar->GetState();
         const auto initialBall = live->ball->GetState();
         Vector cp = FromRs(initialCar.pos), cv = FromRs(initialCar.vel);
@@ -58,11 +60,11 @@ namespace airlabs
                 bv = Add(cv, Scale(s.launchDir, s.launchSpeed));
                 launched = true;
             }
-            cv.Z += RLConst::GRAVITY_Z * dt;
+            cv = Add(cv, Scale(gravity, dt));
             if (p.speedLimit) CapSpeed(cv, RLConst::CAR_MAX_SPEED);
             cp = Add(cp, Scale(cv, dt));
             bv = Scale(bv, drag);
-            bv.Z += RLConst::GRAVITY_Z * dt;
+            bv = Add(bv, Scale(gravity, dt));
             if (p.speedLimit) CapSpeed(bv, RLConst::BALL_MAX_SPEED);
             bp = Add(bp, Scale(bv, dt));
             const Vector rel = Sub(bp, cp);
@@ -124,7 +126,7 @@ namespace airlabs
             if (!hit) continue;
             // Let the solver finish the contact before measuring the outgoing direction.
             for (int i = 0; i < 5; ++i) { probe->Step(1); ++hitTicks; }
-            const Vector afterCoast = Add(coast, V(0.f, 0.f, RLConst::GRAVITY_Z * dt * hitTicks));
+            const Vector afterCoast = Add(coast, Scale(gravity, dt * hitTicks));
             const Vector outRel = Sub(FromRs(probe->ball->GetState().vel), afterCoast);
             if (Len(outRel) < 200.f) continue;
             const float turn = AngleDeg(travel, outRel);
@@ -133,20 +135,22 @@ namespace airlabs
             if (penalty > bestPenalty) continue;
             cs = pc->GetState();
             Vector goalCarPos = FromRs(cs.pos), goalCarVel = FromRs(cs.vel);
-            cs.pos = Vec(100000, 0, 0); cs.vel = Vec(0, 0, 0);
-            pc->SetState(cs); // only forecast the ball from here, with normal gravity/drag/caps
-            for (int i = 0; i < 240; ++i)
+            Vector flightPos = FromRs(probe->ball->GetState().pos), flightVel = FromRs(probe->ball->GetState().vel);
+            // The checked touch is over. In this empty arena the remaining flight is just
+            // drag, gravity and the speed cap; do not run hundreds of extra Bullet ticks.
+            for (int i = 0; i < 960; ++i)
             {
-                const auto ball = probe->ball->GetState();
-                const float distance = ball.pos.Length();
-                if (distance >= 1000.f)
+                const Vector goal = p.ringRelativeMotion ? Add(contact, flightPos) :
+                    Add(FromRs(initialCar.pos), Sub(flightPos, goalCarPos));
+                const float distance = Len(Sub(goal, FromRs(initialCar.pos)));
+                // Measure the opening from the car WHEN IT APPEARS, in either motion mode.
+                // Leave some flight after the touch so the target is not on the contact itself.
+                if (i >= 48 && distance >= 1000.f && distance <= 1500.f)
                 {
-                    if (distance <= 1200.f)
                     {
                         best.checked = true;
-                        best.goal = p.ringRelativeMotion ? Add(contact, FromRs(ball.pos)) :
-                            Add(FromRs(initialCar.pos), Sub(FromRs(ball.pos), goalCarPos));
-                        best.normal = Norm(p.ringRelativeMotion ? FromRs(ball.vel) : Sub(FromRs(ball.vel), goalCarVel));
+                        best.goal = goal;
+                        best.normal = Norm(p.ringRelativeMotion ? flightVel : Sub(flightVel, goalCarVel));
                         best.ballPos = contact; best.ballVel = incoming;
                         best.carPos = carAt; best.carVel = approach; best.carBasis = facing;
                         best.turn = turn; best.flightSec = (hitTicks + i) * dt;
@@ -155,8 +159,10 @@ namespace airlabs
                     }
                     break;
                 }
-                probe->Step(1);
-                goalCarVel.Z += RLConst::GRAVITY_Z * dt;
+                flightVel = Add(Scale(flightVel, drag), Scale(gravity, dt));
+                if (p.speedLimit) CapSpeed(flightVel, RLConst::BALL_MAX_SPEED);
+                flightPos = Add(flightPos, Scale(flightVel, dt));
+                goalCarVel = Add(goalCarVel, Scale(gravity, dt));
                 if (p.speedLimit) CapSpeed(goalCarVel, RLConst::CAR_MAX_SPEED);
                 goalCarPos = Add(goalCarPos, Scale(goalCarVel, dt));
             }
@@ -168,10 +174,12 @@ namespace airlabs
         const Vector out = RotateAbout(travel, around.up, 20.f * kDeg);
         const float seconds = std::clamp(1000.f / std::max(400.f, Len(inRel)), 0.5f, 1.5f);
         best.goal = Add(contact, Add(Scale(Add(coast, Scale(out, std::max(400.f, Len(inRel)))), seconds),
-                                     V(0.f, 0.f, 0.5f * RLConst::GRAVITY_Z * seconds * seconds)));
+                                     Scale(gravity, 0.5f * seconds * seconds)));
         best.normal = out; best.turn = 20.f; best.flightSec = seconds;
         if (!p.ringRelativeMotion)
             best.goal = Add(FromRs(initialCar.pos), Add(Sub(contact, cp), Scale(out, std::max(400.f, Len(inRel)) * seconds)));
+        best.distance = std::uniform_real_distribution<float>(1000.f, 1500.f)(rng);
+        best.goal = Add(FromRs(initialCar.pos), Scale(Norm(Sub(best.goal, FromRs(initialCar.pos))), best.distance));
         return best;
     }
 }

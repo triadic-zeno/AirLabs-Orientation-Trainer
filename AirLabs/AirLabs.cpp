@@ -488,6 +488,7 @@ void AirLabs::RegisterCvars()
     showTips = mkB(true);
     labMotion = mkI(kLabRespawn); labBubble = mkF(800.f); labPass = mkF(250.f); labSpeed = mkF(800.f); labHang = mkF(1.25f);
     labSpawnMin = mkF(1500.f); labSpawnMax = mkF(2000.f);
+    labRingSize = mkF(700.f);
     labSpeedMin = mkF(400.f); labSpeedMax = mkF(1400.f); labCurve = mkF(0.f); labRun = mkF(0.f); labCone = mkF(180.f);
     labHeightMin = mkF(-90.f); labHeightMax = mkF(90.f); labSteep = mkF(45.f); labFloor = mkF(300.f);
     labDynamic = mkB(false); labDust = mkB(false); labMarkers = mkB(false); labNavball = mkB(false); labSpeedLimit = mkB(true); labKeepFlipDrift = mkB(true); labFlips = mkI(kLabFlipsReal); labDebug = mkB(true);
@@ -565,10 +566,11 @@ void AirLabs::RegisterCvars()
     reg("airlabs_lab_height_max", "90", "Boost Lab: highest a new ball appears (deg above the horizon)", -90.f, 90.f).bindTo(labHeightMax);
     reg("airlabs_lab_steep", "45", "Boost Lab: the steepest a launched or bounced ball travels, up or down from level (deg)", 0.f, 90.f).bindTo(labSteep);
     reg("airlabs_lab_floor", "300", "Boost Lab: how far below your car the ball can go; it bounces off this floor (uu, 2000 = no floor)", 100.f, 2000.f).bindTo(labFloor);
-    reg("airlabs_lab_speed_limit", "1", "Boost Lab: normal speed limits (car 2300, ball 6000) and ball air drag; gravity stays on", 0.f, 1.f).bindTo(labSpeedLimit);
+    reg("airlabs_lab_speed_limit", "1", "Boost Lab: normal speed limits (car 2300, ball 6000) and ball air drag", 0.f, 1.f).bindTo(labSpeedLimit);
     reg("airlabs_lab_keep_flip_drift", "1", "Volley test: keep vertical drift through flips (0: normal match flip braking); ignored in Respawn", 0.f, 1.f).bindTo(labKeepFlipDrift);
     reg("airlabs_lab_redirect_ring", "1", "Boost Lab, Respawn: a target ring for each pass; redirect a touched ball through it", 0.f, 1.f).bindTo(labRedirectRing);
     reg("airlabs_lab_ring_motion", "1", "Respawn ring motion: 1 = fixed in the hidden world, 0 = fixed offset from your car", 0.f, 1.f).bindTo(labRingMotion);
+    reg("airlabs_lab_ring_size", "700", "Respawn ring size: opening diameter in uu", 250.f, 2000.f).bindTo(labRingSize);
     reg("airlabs_lab_flips", "1", "Boost Lab flips: 0 = off, 1 = real (one for each new ball, one for each flip reset), 2 = infinite", 0.f, 2.f).bindTo(labFlips);
     reg("airlabs_lab_debug", "1", "Boost Lab: a debug line on the HUD (jump presses, flips, flip resets, what the game says)", 0.f, 1.f).bindTo(labDebug);
     reg("airlabs_lab_dust", "0", "Boost Lab: specks of dust that streak past as you move", 0.f, 1.f).bindTo(labDust);
@@ -1630,6 +1632,7 @@ LabParams AirLabs::LabParamsNow() const
     p.keepFlipDrift = *labKeepFlipDrift;
     p.redirectRing = *labRedirectRing;
     p.ringRelativeMotion = *labRingMotion;
+    p.ringRadius = std::clamp(*labRingSize, 250.f, 2000.f) * 0.5f;
     p.flips = std::clamp(*labFlips, 0, 2);
     return p;
 }
@@ -2070,7 +2073,6 @@ void AirLabs::DrawLab(CanvasWrapper& canvas, const Vector2& screen)
         add(Fmt("Ball         %.0f uu away", dist) + (closing >= 0.f ? Fmt(", closing at %.0f uu/s", closing) : Fmt(", pulling away at %.0f uu/s", -closing)));
         add(p.motion == kLabConstant ? Fmt("Touches  %.0f", lab.touches) : Fmt("Touches  %.0f", lab.touches) + Fmt("    Got away  %.0f", lab.misses));
         if (lab.runEnd < 1e17) add(Fmt("Time left  %.0f s", std::max(0.0, std::min(static_cast<double>(p.runSec), lab.runEnd - gameTime))));
-        if (lab.touches > 0) add(Fmt("Last touch: met it at %.0f uu/s", lab.lastClosing) + Fmt(", it left you at %.0f", lab.lastBallSpeed), kColDim, 1.15f);
         // Boosting at a ball that's faster than a car can go: say so, so it doesn't look broken.
         if (*labDebug)
         {
@@ -2101,7 +2103,6 @@ void AirLabs::DrawLab(CanvasWrapper& canvas, const Vector2& screen)
     };
     if (gameTime - labResetFlash < 0.8) centred("FLIP RESET", kColTitle, 2.2f, static_cast<int>(screen.Y * 0.28f));
     if (gameTime - labGoalFlash < 0.8) centred("GOAL", kColGood, 2.2f, static_cast<int>(screen.Y * 0.22f));
-    else if (gameTime - labTouchFlash < 0.5) centred(Fmt("TOUCH  %.0f uu/s", lab.lastClosing), kColGood, 2.2f, static_cast<int>(screen.Y * 0.22f));
     else if (gameTime - labMissFlash < 0.7) centred("GOT AWAY", kColBad, 2.2f, static_cast<int>(screen.Y * 0.22f));
 }
 

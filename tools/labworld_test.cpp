@@ -82,9 +82,11 @@ int main()
             ++checked;
             if (plan.turn >= 15.f && plan.turn <= 40.f) ++modest;
             const float distance = plan.distance;
-            CHECK(distance >= 800.f && distance <= 1200.f, "redirect target distance %.1f", distance);
+            CHECK(distance >= 1000.f && distance <= 1500.f, "redirect target distance %.1f", distance);
+            CHECK(Len(w.s.ringPos) >= 999.9f && Len(w.s.ringPos) <= 1500.1f, "visible ring spawn distance %.1f", Len(w.s.ringPos));
             std::unique_ptr<RocketSim::Arena> replay(RocketSim::Arena::Create(RocketSim::GameMode::THE_VOID));
             auto m = replay->GetMutatorConfig();
+            m.gravity = RocketSim::Vec(0, 0, 0); // Respawn is now gravity-free
             m.boostUsedPerSecond = 0.f;
             replay->SetMutatorConfig(m);
             auto* car = replay->AddCar(RocketSim::Team::BLUE, RocketSim::CAR_CONFIG_OCTANE);
@@ -96,7 +98,7 @@ int main()
             bs.pos = ToRs(plan.ballPos); bs.vel = ToRs(plan.ballVel);
             replay->ball->SetState(bs);
             bool goal = false, hit = false;
-            for (int i = 0; i < 300; ++i)
+            for (int i = 0; i < 1200; ++i)
             {
                 const Vector before = FromRs(replay->ball->GetState().pos);
                 const Vector carBefore = FromRs(car->GetState().pos);
@@ -121,13 +123,15 @@ int main()
         LabWorld w;
         w.Start(p, Facing(V(1.f, 0.f, 0.f)), kOctane, rng, 0.0);
         const Vector world = Add(w.s.ringPos, FromRs(w.GetCarState().pos));
-        for (int i = 0; i < 30; ++i) w.Step(p, LabControls{}, rng, i * kTick);
+        LabControls moving;
+        moving.boost = true;
+        for (int i = 0; i < 30; ++i) w.Step(p, moving, rng, i * kTick);
         CHECK(Len(Sub(Add(w.s.ringPos, FromRs(w.GetCarState().pos)), world)) < 0.1f, "relative ring moved in hidden world");
         const Vector displayed = w.s.ringPos;
         p.ringRelativeMotion = false;
-        w.Step(p, LabControls{}, rng, 30 * kTick);
+        w.Step(p, moving, rng, 30 * kTick);
         CHECK(Len(Sub(w.s.ringPos, displayed)) < 0.1f, "switching to fixed ring jumped");
-        for (int i = 31; i < 60; ++i) w.Step(p, LabControls{}, rng, i * kTick);
+        for (int i = 31; i < 60; ++i) w.Step(p, moving, rng, i * kTick);
         CHECK(Len(Sub(w.s.ringPos, displayed)) < 0.1f, "fixed ring did not keep its car offset");
         p.redirectRing = false;
         w.Step(p, LabControls{}, rng, 60 * kTick);
@@ -151,6 +155,21 @@ int main()
         CHECK(!w.s.ringScoredNow && w.s.redirects == 1, "same goal scored twice");
     }
 
+    // Ring size updates the visible opening immediately, and the smaller opening rejects clips.
+    {
+        LabParams p;
+        p.ringRadius = 125.f;
+        LabWorld w;
+        w.Start(p, Facing(V(1.f, 0.f, 0.f)), kOctane, rng, 0.0);
+        CHECK(std::fabs(w.s.ringRadius - 125.f) < 0.01f, "initial ring size ignored");
+        p.ringRadius = 600.f;
+        w.Step(p, LabControls{}, rng, 0.0);
+        CHECK(std::fabs(w.s.ringRadius - 600.f) < 0.01f, "live ring size ignored");
+        const Vector before = V(-10.f, 100.f, 0.f), after = V(10.f, 100.f, 0.f);
+        CHECK(!LabRingCrossed(before, after, V(0.f, 0.f, 0.f), V(1.f, 0.f, 0.f), 125.f), "small opening accepted a clip");
+        CHECK(LabRingCrossed(before, after, V(0.f, 0.f, 0.f), V(1.f, 0.f, 0.f), 600.f), "large opening rejected a clear goal");
+    }
+
     // Respawn must ignore curve even if a stored Volley curve is nonzero.
     {
         LabParams p;
@@ -163,10 +182,13 @@ int main()
         CHECK(std::fabs(w.s.ballVel.X) < 0.01f && std::fabs(w.s.ballVel.Y - 400.f) < 0.1f, "Respawn curve remained active");
     }
 
-    // ---- normal gravity reaches both bodies, including the launch countdown ----
+    // ---- Respawn has no gravity; Constant keeps normal gravity, including the countdown ----
+    for (int motion : { kLabRespawn, kLabConstant })
     for (int waiting = 0; waiting < 2; ++waiting)
     {
         LabParams p;
+        p.motion = motion;
+        p.redirectRing = false;
         CHECK(p.speedLimit, "normal speed limits should be on by default");
         p.speedLimit = false; // isolate gravity from ball drag and speed caps
         p.hangSec = 2.f;
@@ -177,10 +199,11 @@ int main()
         if (!waiting) w.Place(V(1000.f, 0.f, 300.f), V(0.f, 0.f, 0.f), V(0.f, 0.f, 0.f));
         const Vector initialRel = w.s.ballPos;
         for (int i = 0; i < 120; ++i) w.Step(p, LabControls{}, rng, i * kTick);
-        std::printf("1 s gravity, %s: car Z %.1f, ball Z %.1f, relative displacement %.3f\n",
-                    waiting ? "waiting" : "flying", w.s.carVel.Z, w.s.ballVel.Z, Len(Sub(w.s.ballPos, initialRel)));
-        CHECK(std::fabs(w.s.carVel.Z + 650.f) < 1.f, "gravity on car: %.1f", w.s.carVel.Z);
-        CHECK(std::fabs(w.s.ballVel.Z + 650.f) < 1.f, "gravity on ball: %.1f", w.s.ballVel.Z);
+        const float expected = motion == kLabRespawn ? 0.f : -650.f;
+        std::printf("1 s gravity, mode %d %s: car Z %.1f, ball Z %.1f, relative displacement %.3f\n",
+                    motion, waiting ? "waiting" : "flying", w.s.carVel.Z, w.s.ballVel.Z, Len(Sub(w.s.ballPos, initialRel)));
+        CHECK(std::fabs(w.s.carVel.Z - expected) < 1.f, "gravity on car: %.1f", w.s.carVel.Z);
+        CHECK(std::fabs(w.s.ballVel.Z - expected) < 1.f, "gravity on ball: %.1f", w.s.ballVel.Z);
         CHECK(Len(Sub(w.s.ballPos, initialRel)) < 0.1f, "equal free fall should preserve separation");
         CHECK(w.s.touches == 0 && w.s.bounces == 0 && w.s.balls == 1, "free fall changed the drill");
         CHECK(w.s.phase == (waiting ? kLabHang : kLabFlying), "unexpected phase during free fall");
@@ -265,13 +288,13 @@ int main()
         CHECK(fast.FlipDriftZ() == 0.f, "giving a fresh flip should clear its reference");
     }
 
-    // ---- disabled Volley experiment must match Respawn's normal flip physics ----
+    // ---- Respawn ignores the Volley flip experiment in either toggle setting ----
     {
         LabParams normal;
         normal.bubble = normal.floor = 50000.f;
         normal.speedLimit = false;
         LabParams volley = normal;
-        volley.motion = kLabConstant;
+        volley.motion = kLabRespawn;
         volley.keepFlipDrift = false;
         LabWorld a, b;
         a.Start(normal, Facing(V(1.f, 0.f, 0.f)), kOctane, rng, 0.0);

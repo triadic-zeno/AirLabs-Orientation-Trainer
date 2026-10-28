@@ -2,7 +2,8 @@
 // The Boost Lab's hidden world, run by RocketSim (thirdparty/RocketSim: an MIT-licensed
 // reimplementation of Rocket League's physics; see thirdparty/RocketSim/AIRLABS.md).
 //
-// RocketSim simulates your car and the ball in an empty arena (THE_VOID) with normal gravity: boost,
+// RocketSim simulates your car and the ball in an empty arena (THE_VOID): normal gravity in
+// Constant, no gravity in Respawn. It handles boost,
 // air control, flips, jumps, the ball-car hit (where it lands on the car decides how the ball
 // leaves and how your car spins and slows), the wheels' suspension against the ball, and flip
 // resets (three or more wheels on the ball). The game car becomes a puppet: it shows RocketSim's
@@ -88,6 +89,7 @@ namespace airlabs
             car->SetState(cs);
             GiveFlip();
             s = LabState{};
+            s.ringRadius = std::clamp(p.ringRadius, 125.f, 1000.f);
             LabRespawn(s, rng, p, rot.forward, now);
             if (p.motion == kLabConstant) s.phaseEnd = now + std::max(p.hangSec, 1.f);
             s.runStart = now;
@@ -126,6 +128,7 @@ namespace airlabs
                 return;
             }
             ApplySettings(p);
+            s.ringRadius = std::clamp(p.ringRadius, 125.f, 1000.f);
             if (p.motion != kLabRespawn || !p.redirectRing) s.ringActive = false;
             else if (!s.ringActive && s.phase == kLabHang) MakeRedirect(p, rng, now);
             if (s.ringActive && ringMovesRelative != p.ringRelativeMotion)
@@ -144,8 +147,7 @@ namespace airlabs
                 s.free = true;
                 s.curveAxisUntil = 0.0;
             }
-            // While waiting, both bodies keep falling under gravity. Clearing the ball's
-            // velocity each tick would hold it up while the car accelerates downward.
+            // Preserve velocity during the countdown; both bodies follow this mode's gravity.
             if (p.motion == kLabConstant && s.free && p.curve > 0.f && s.phase == kLabFlying) Curve(p, rng, now);
 
             // ---- the tick itself ----
@@ -186,7 +188,7 @@ namespace airlabs
                 s.lastTouch = now;
                 s.free = false;
                 if (s.phase == kLabHang) s.phase = kLabFlying;
-                if (p.motion == kLabRespawn) { s.phase = kLabTouched; s.phaseEnd = now + (s.ringActive ? 3.5f : kLabTouchedSec); }
+                if (p.motion == kLabRespawn) { s.phase = kLabTouched; s.phaseEnd = now + (s.ringActive ? ringShotWindow : kLabTouchedSec); }
             }
             if (s.ringActive && !s.ringScored && s.phase == kLabTouched &&
                 LabRingCrossed(ringMovesRelative ? ballWorldBefore : Sub(ballWorldBefore, carWorldBefore),
@@ -278,6 +280,7 @@ namespace airlabs
         RocketSim::Vec ringWorld{ 0, 0, 0 };
         RocketSim::Vec ringAnchorRelative{ 0, 0, 0 };
         bool ringMovesRelative = true;
+        float ringShotWindow = 3.5f;
 
         void MakeRedirect(const LabParams& p, std::mt19937& rng, double now)
         {
@@ -287,6 +290,7 @@ namespace airlabs
             LabParams planning = p;
             planning.hangSec = static_cast<float>(std::max(0.0, s.phaseEnd - now));
             redirectPlan = LabPlanRedirect(arena, car, planning, s, rng);
+            ringShotWindow = std::max(3.5f, redirectPlan.flightSec + 0.5f);
             ringWorld = ToRs(redirectPlan.goal);
             ringAnchorRelative = ringWorld - car->GetState().pos;
             ringMovesRelative = p.ringRelativeMotion;
@@ -296,7 +300,7 @@ namespace airlabs
         void ApplySettings(const LabParams& p)
         {
             RocketSim::MutatorConfig m = arena->GetMutatorConfig();
-            m.gravity = RocketSim::Vec(0, 0, RocketSim::RLConst::GRAVITY_Z); // both bodies: normal match gravity
+            m.gravity = RocketSim::Vec(0, 0, p.motion == kLabRespawn ? 0.f : RocketSim::RLConst::GRAVITY_Z);
             m.ballDrag = p.speedLimit ? RocketSim::RLConst::BALL_DRAG : 0.f;
             m.ballMaxSpeed = p.speedLimit ? RocketSim::RLConst::BALL_MAX_SPEED : 1e6f;
             m.unlimitedFlips = p.flips == kLabFlipsInfinite;

@@ -9,7 +9,8 @@
 // there's a hidden world where the car really moves: boost pushes it along its nose (and it
 // keeps drifting when you let go: there are no brakes in the air), the ball has its own
 // velocity, and what you see is the ball's position relative to your car. LabWorld applies normal
-// gravity to both. Their individual velocities matter to flips, speed caps and ball drag, even
+// gravity to both in Constant; Respawn has no gravity. Individual velocities matter to flips,
+// speed caps and ball drag, even
 // though equal gravitational acceleration alone cancels out of their relative motion.
 // The legacy LabStep below still omits gravity; it is not the plugin's physics.
 //
@@ -26,7 +27,7 @@
 //
 // Speed limit (on by default): the car's 2300 cap, the ball's 6000 and the ball's air drag (about
 // 3% of its speed a second). Turning it off removes the caps and ball drag. LabWorld keeps normal
-// gravity in either setting. Cars have no drag.
+// gravity in Constant and no gravity in Respawn. Cars have no drag.
 //
 // Flips: the game does the flip itself when it can (the plugin adds its push to your momentum);
 // LabFlipImpulse is Rocket League's flip push for when it can't. Real flips: one for each new ball
@@ -91,10 +92,11 @@ namespace airlabs
         float steep = 90.f;       // deg, the steepest a launched or bounced ball travels, up or down from level
         float floor = 5000.f;     // uu, how far below your car the ball can go (it bounces off this floor)
         float runSec = 0.f;       // s, run length (0 = endless)
-        bool speedLimit = true;   // the car's 2300 cap, the ball's 6000 cap and its air drag; gravity stays on
+        bool speedLimit = true;   // the car's 2300 cap, the ball's 6000 cap and its air drag
         bool keepFlipDrift = true; // Volley test: retain vertical drift through flips; ignored in Respawn
         bool redirectRing = true; // Respawn: aim a touched ball through a target ring
         bool ringRelativeMotion = true; // off: ring stays at the same offset from your car
+        float ringRadius = 350.f; // uu; UI presents the full diameter as Ring size
         int flips = kLabFlipsReal; // Real: one flip for each new ball, and one for each flip reset (wheels on the ball)
     };
 

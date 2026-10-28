@@ -1638,9 +1638,9 @@ void AirLabs::WinLab()
         FontScope f(small);
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kDim));
         ImGui::TextWrapped("Flip with jump and the stick, as in a match: the flip turns your car and pushes it (sideways and backwards flips "
-                           "push harder the faster you're going). Normal gravity pulls both you and the ball down. Speed limit is on by "
+                           "push harder the faster you're going). Constant has normal gravity; Respawn has no gravity. Speed limit is on by "
                            "default: your car tops out at 2300, the ball at 6000, and the ball slows in the air. Turning the limit off "
-                           "removes the caps and ball drag; gravity stays on.");
+                           "removes the caps and ball drag.");
         ImGui::PopStyleColor();
     }
 
@@ -1695,6 +1695,8 @@ void AirLabs::WinLab()
             if (Chip("##labringmotion", p.ringRelativeMotion ? "Ring motion: ON" : "Ring motion: OFF", p.ringRelativeMotion, bold))
                 SetCvarI("airlabs_lab_ring_motion", p.ringRelativeMotion ? 0 : 1);
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("ON: a fixed target in the hidden world; it moves on screen relative to your flight.\nOFF: the ring stays at the same offset from your car.\nGoal detection follows the ring you see. Switching preserves its current position.");
+            UiSliderF("Ring size##lab", "The full opening width. The whole ball must fit through. Changes apply to the visible ring and scoring straight away.",
+                      "airlabs_lab_ring_size", 250.f, 2000.f, "%.0f uu wide");
         }
     }
 
@@ -1760,6 +1762,7 @@ void AirLabs::WinLab()
         SetCvarI("airlabs_lab_markers", 0);
         SetCvarI("airlabs_lab_redirect_ring", 1);
         SetCvarI("airlabs_lab_ring_motion", 1);
+        SetCvarF("airlabs_lab_ring_size", 700.f);
     }
 }
 

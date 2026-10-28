@@ -418,7 +418,8 @@ test: there are no scores or leaderboard yet.
 
 **The physics is RocketSim** (`thirdparty/RocketSim`, MIT licence): a reimplementation of Rocket
 League's physics, close enough that machine-learning bots train on it. It runs your car and the ball
-in an empty arena with normal gravity: boost, air control, flips and jumps, the ball-car hit (where the
+in an empty arena: Respawn has no gravity; Constant has normal gravity. It handles boost, air
+control, flips and jumps, the ball-car hit (where the
 ball lands on your car decides how it leaves, how much speed your car loses and how your car spins),
 the wheels' suspension against the ball, and flip resets (three or more wheels on the ball). The
 game car is a puppet that shows RocketSim's car, held in place; the real ball is drawn where
@@ -431,8 +432,8 @@ pitches at 2.4 rad/s; off the front corner the ball leaves at 1802, 1076 of it s
   holding boost pushes it along its nose at 991.7 uu/s² (air throttle: 66.7 uu/s²), up to 2300 uu/s,
   and letting go doesn't stop you. Turning doesn't change where you're going; only boost does. The
   ball has its own velocity, and is drawn where it is relative to you. Gravity pulls the car and
-  the ball down at 650 uu/s². Their individual speeds still matter for flips, speed limits and ball
-  drag, so gravity is simulated even though your visible car stays pinned.
+  the ball down at 650 uu/s² in Constant. Respawn has gravity turned off for both. Your visible
+  car stays pinned in either mode.
 - **The bubble.** In Constant, pick Short 500, Medium 800, Long 1200 uu or a radius up to 2000.
   Respawn's boundary expands to fit its spawn range. On the standard field the displayed ball is
   also limited by the arena floor, walls and roof; the large spawn range is best used on the space map.
@@ -441,10 +442,13 @@ pitches at 2.4 rad/s; off the front corner the ball leaves at 1802, 1076 of it s
   Your speed resets with each new ball. Without a ring, a new ball comes 1.5 s after the last touch.
 - **Redirect ring (Respawn, on by default):** a target appears with each ball. It is planned from
   the pass's position, speed and direction, with an estimated reachable meeting point. RocketSim
-  checks a glancing touch and the ball's outgoing flight under gravity and drag, looking for a
-  15–40 degree redirect to a ring about 1000 uu beyond the contact. The ring's radius is 350 uu;
+  checks a glancing touch. The planner then projects the outgoing flight with Respawn's zero
+  gravity and ball drag,
+  looking for a 15–40 degree redirect. The ring appears **1000–1500 uu from your car**, measured
+  when it spawns. **Ring size** changes the full opening width from 250 to 2000 uu (700 by default);
   the whole ball must fit through after a touch to score. The ring turns green and the HUD counts
-  redirects. A touched ball has up to 3.5 s after the latest touch to reach it, with boundary/floor
+  redirects. A touched ball has at least 3.5 s after the latest touch to reach it (longer when the
+  checked shot needs more time), with boundary/floor
   replacement suspended during the shot. Restrictive settings may use a simpler fallback target;
   the approach is an estimate, not a guarantee that every flight path is reachable.
 - **Ring motion (separate toggle):** ON keeps the ring fixed in the hidden world and shows it
@@ -466,7 +470,7 @@ pitches at 2.4 rad/s; off the front corner the ball leaves at 1802, 1076 of it s
 - **Speed limit (on by default):** with it on, the car tops out at 2300, the ball at 6000, and the
   ball has Rocket League's air drag (about 3% of its speed a second), so a ball pushed just past your
   top speed loses speed in the air (the HUD says when it's faster than you). Turning the limit off
-  removes both caps and ball drag. Normal gravity stays on for both bodies in either setting.
+  removes both caps and ball drag. Gravity remains off in Respawn and on in Constant.
 - **Flips** (Off / Real / Infinite; Real by default): jump with the stick flips, jump without it is a
   double jump, all by RocketSim's rules (Rocket League's). Real gives one flip with each new ball and
   each bounce (it lasts until you use it, like a flip reset), and one for every **flip reset**: three
@@ -549,12 +553,13 @@ PC clock if it ever looks wrong; the Readout shows which is in use.
 | `airlabs_lab_motion 0` / `1` | Boost Lab: Respawn / Constant |
 | `airlabs_lab_bubble`, `_pass`, `_speed`, `_dynamic`, `_speed_min`, `_speed_max`, `_curve`, `_cone`, `_height_min`, `_height_max`, `_steep`, `_floor`, `_run`, `_hang` | Boost Lab settings (see "Boost Lab") |
 | `airlabs_lab_flips 0` / `1` / `2` | Boost Lab flips: off / real (default) / infinite |
-| `airlabs_lab_speed_limit 1` / `0` | Boost Lab speed limits and ball drag on (default) / off; gravity stays on |
+| `airlabs_lab_speed_limit 1` / `0` | Boost Lab speed limits and ball drag on (default) / off; Respawn has no gravity |
 | `airlabs_lab_keep_flip_drift 1` / `0` | Volley test: keep vertical drift through flips (default) / normal flip braking; ignored in Respawn |
 | `airlabs_lab_markers`, `airlabs_lab_navball`, `airlabs_lab_dust` (1 / 0) | Boost Lab: relative markers, navball, dust (all off by default) |
 | `airlabs_lab_spawn_min`, `airlabs_lab_spawn_max` | Respawn spawn range in uu (1500–2000 by default) |
 | `airlabs_lab_redirect_ring 1` / `0` | Respawn target ring on (default) / off |
 | `airlabs_lab_ring_motion 1` / `0` | Ring fixed in hidden world (default) / fixed offset from car |
+| `airlabs_lab_ring_size` | Ring opening width, 250–2000 uu (700 by default) |
 | `airlabs_lab_botprobe` | Test: spawn a bot car and hold it next to you for 20 s |
 | `airlabs_watch <run>` | Watch a leaderboard run's replay (the number is the run's id on the server) |
 | `airlabs_lb_url <url>` | The leaderboard server (only change this for a server of your own) |
