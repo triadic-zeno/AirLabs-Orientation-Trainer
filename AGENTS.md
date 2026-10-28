@@ -3,6 +3,118 @@
 Read this first. It says what the project is, how to get acquainted with the code, how work gets
 shipped, the rules the owner works by, and what's happening right now.
 
+## Handover: where things stand (2026-10-28, end of the last session)
+
+Read this section first; the rest of the file is the background.
+
+### State of the code
+
+- `main` at commit 8523b66 is what the owner last built and played. It builds in Visual Studio,
+  with RocketSim compiled into the plugin.
+- **The Boost Lab runs on RocketSim** (`AirLabs/LabWorld.h`, `thirdparty/RocketSim`). The game car is
+  a puppet: RocketSim flies the car and the ball in an empty arena with no gravity. Each tick the game
+  car gets RocketSim's rotation and is held in place, and the game ball is put where RocketSim's ball
+  is relative to the car.
+- **Flips are RocketSim's.** The owner's `bakkesmod.log` confirmed that Rocket League itself will NOT
+  flip a car held in mid-air ("the game said the car had a flip but didn't flip it"), so don't go
+  back to the game's own flips.
+- While the lab runs, the game's ball is frozen (`SetbFrozen(1)`) with `bCollideActors` 0, and the
+  game car is told its flip is used up. Both are restored when the lab stops or a normal run starts.
+- Diagnostics are on (`airlabs_lab_debug` 1, two debug lines on the HUD). They log to the F6 console
+  and `bakkesmod.log`:
+  - "the GAME moved its ball";
+  - "the GAME turned the car";
+  - "RocketSim's ball jumped" (relative speed above 6000 uu/s within one tick).
+
+### Open bug #1 (top priority): the ball "shoots upwards really fast" on a musty or backflip
+
+**The owner's report:** on a musty or backflip, at any distance, without touching the ball, it
+shoots upwards very fast. Earlier, about every flip: "the ball goes flying".
+
+**The owner's rule for what should happen:** "it should only fling with normal flick mechanics when
+the roof of my car is touching as I rotate from the flip." That's real Rocket League: a musty is a
+backflip whose rotation sweeps the roof or back of the car into the ball.
+
+**Evidence so far:**
+- The owner's log from the diagnostics build (16:11-16:16 that day) shows no "turned the car" and no
+  "RocketSim's ball jumped".
+- **"The GAME moved its ball" fired hundreds of times, but it's a false alarm.** The amounts match one
+  tick of the ball's own motion (7, 13 or 20 uu at 800, 1600 or 2400 uu/s), because
+  `ball.GetLocation()` read straight after `SetLocation()` still returns the previous tick's
+  location. **Fix (written but not applied):** in `LabTick`, store
+  `labPlacedBall = Add(pinLocation, rel)` (the location set) instead of
+  `labPlacedBall = ball.GetLocation()`.
+- **Off-game:** 400 runs of 20 s of random realistic inputs (flips, mustys, boost, throttle, air roll,
+  handbrake) never made the ball jump. In 600 runs, the ball's speed never changed in a tick without a
+  hitbox hit, apart from scheduled launches. A backflip gives a 533 uu/s push backwards (correct) and
+  leaves the ball alone. **So RocketSim isn't flinging the ball.**
+
+**Hypotheses, most likely first:**
+1. **The camera.** The game car always has zero velocity. Rocket League's air car-camera follows your
+   direction of travel; with zero speed it may follow the car's rotation instead. A backflip turns the
+   car through a full rotation in about 0.6 s, so the view whips round and the ball appears to shoot
+   off, then comes back. Questions for the owner (asked, not yet answered): was ball cam on or off,
+   and did the ball swing back after the flip or keep going?
+   - Possible fixes: give the game car a velocity equal to RocketSim's car velocity, so the camera
+     behaves as in a match, and place the car at pin - velocity x tick before each physics step so it
+     still ends up at the pin. Watch for jitter. Or read and steer the camera (`CameraWrapper`).
+2. **A lab rule.** The backflip pushes you back, the ball reaches the bubble's edge, and a bounce
+   (Constant) or a new ball (Respawn) relaunches it. Check the bounce and ball counts around a flip.
+3. **Physics below the 6000 threshold.** Add the per-flip log that was being written: when RocketSim's
+   `CarState.isFlipping` goes true, log the ball's distance and its velocity relative to the car, and
+   again 0.7 s later, with touches, bounces and balls since. Fields to add to `AirLabs.h`:
+   `double labFlipLogAt; Vector labFlipRelBefore; int labFlipTouchesBefore;`.
+
+**How to read the owner's log yourself:** when the session is linked to the owner's PC, the
+BakkesMod folder is mounted (`~/mnt/bakkesmod/bakkesmod.log`; grep for `[AirLabs]`). Ask the owner
+to reproduce the bug, then read it directly, so they don't have to copy anything.
+
+### Other open items for the Boost Lab
+
+- **The ball's spin isn't shown:** the game ball's angular velocity is set to 0. Mirroring
+  RocketSim's needs the game's angular-velocity sign: learn it by comparing the ball's rotation from
+  one tick to the next.
+- **The game's own flip reset sound and burst (v2.66) can't play:** they need the game's wheels to
+  touch the game's ball, and its collisions are off. Find another trigger, or add our own cue. "FLIP
+  RESET" text shows on the HUD.
+- **Free air roll:** if the game gives handbrake plus yaw instead of roll, `LabWorld::Step` turns yaw
+  into roll. Not confirmed in game.
+- **Before any release:** turn the debug lines off by default, quieten the logging, and decide
+  whether to remove the old hand-written physics in `BoostLab.h` (`LabStep`, `LabHit`,
+  `LabFlipImpulse`, kept for reference and their tests).
+- **The Boost Lab hasn't been released.** The source's version string says 2.8.2; 2.8.1 is live. Don't
+  release without the owner's go, and bump `LATEST_VERSION` on the server only after bakkesplugins
+  shows the new version.
+- After the 1:1 work: Redirect, then Intercept, Shadow and Dock, the simulated player, Dribble, and
+  the rest (see "The plan" below). The bot probe (`airlabs_lab_botprobe`) is still waiting for an
+  in-game test.
+
+### Working with the owner (learned this session)
+
+- The owner builds on Windows in the x64 Native Tools prompt, from the project folder in their
+  Downloads folder:
+  `msbuild AirLabs.sln /p:Configuration=Release /p:Platform=x64`.
+  That folder is a plain copy, not a git checkout. Changed files were sent there as a `.tgz` and
+  written over the old ones with `tar xzf file.tgz -O path > path`, because deleting files on the
+  owner's PC needs their permission, and a plain `tar x` deletes before it writes. New files and
+  folders extract normally.
+- The owner tests in game and reports what they feel; they want Rocket League behaviour **1:1**. Say
+  plainly what's simulated versus genuine, and what couldn't be checked off-game.
+- For anything big, the owner wants the design discussed before building. Explain ideas
+  conceptually, in plain words, with the numbers alongside.
+- The owner may run low on usage credits: checkpoint often (commit, update this file), and keep
+  reports short.
+- **The off-game test rigs from the last session are gone** (they lived in that session's temporary
+  workspace):
+  - a simulation that compiled `AirLabs.cpp`, `Leaderboard.cpp` and `TrainerWindow.cpp` against the
+    BakkesMod SDK headers, with stubbed SDK functions and a simulated car;
+  - an ImGui screenshot harness for the window.
+
+  To rebuild the simulation: get the SDK headers (BakkesModSDK on GitHub), stub what the linker says
+  is missing, and link RocketSim, which compiles with g++:
+  `g++ -std=c++20 -O2 -w -c` each `.cpp` under `thirdparty/RocketSim`.
+  `tools/labworld_test.cpp`, `tools/boostlab_test.cpp` and `tools/core_test.cpp` need no SDK.
+
 ## What AirLabs is
 
 A BakkesMod plugin for Rocket League that trains aerial car control. The car is pinned in mid-air
