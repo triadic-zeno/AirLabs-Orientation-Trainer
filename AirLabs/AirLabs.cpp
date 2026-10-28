@@ -1689,6 +1689,38 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
     }
     labBoosting = in.boost;
 
+    // ---- did the game move its ball or turn its car since the last tick? (it shouldn't: its
+    // ball is frozen and doesn't collide, and its car can't flip) ----
+    if (labHavePlaced && labWorld.Ready())
+    {
+        BallWrapper gb = server.GetBall();
+        if (!gb.IsNull())
+        {
+            const float moved = Len(Sub(gb.GetLocation(), labPlacedBall));
+            if (moved > 5.f)
+            {
+                ++labGameMovedBall;
+                if (gameTime - labLastDiagLog > 0.5)
+                {
+                    labLastDiagLog = gameTime;
+                    cvarManager->log("[AirLabs] Boost Lab: the GAME moved its ball " + Fmt("%.0f uu", moved) + " since the last tick (it should be frozen)");
+                }
+            }
+        }
+        const Rotator nr = car.GetRotation();
+        const Basis nb = BasisFromRotator(nr.Pitch, nr.Yaw, nr.Roll);
+        const float turned = std::max(AngleDeg(nb.forward, labSetBasis.forward), AngleDeg(nb.up, labSetBasis.up));
+        if (turned > 3.f)
+        {
+            ++labGameTurnedCar;
+            if (gameTime - labLastDiagLog > 0.5)
+            {
+                labLastDiagLog = gameTime;
+                cvarManager->log("[AirLabs] Boost Lab: the GAME turned the car " + Fmt("%.0f deg", turned) + " since the last tick (it shouldn't flip on its own)");
+            }
+        }
+    }
+
     pinLocation = V(0.f, 0.f, kArenaCentreZ);
     if (labNeedsStart || !labWorld.Ready())
     {
@@ -1708,6 +1740,8 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
         for (int i = 0; i < kDustCount; ++i) labSpecks.push_back(V(u(rng), u(rng), u(rng)));
         labTouchFlash = labMissFlash = labResetFlash = -10.0;
         labJumpPresses = 0;
+        labHavePlaced = false;
+        labGameMovedBall = labGameTurnedCar = labBallJumps = 0;
     }
 
     // A finished run: boost to go again (after a moment to read it).
@@ -1721,7 +1755,21 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
     const int steps = tickTiming ? 1 : std::clamp(static_cast<int>(std::lround(dt * 120.f)), 1, 4);
     for (int i = 0; i < steps; ++i)
     {
+        const Vector relBefore = labWorld.s.ballPos;
+        const int ballsBefore = labWorld.s.balls, bouncesBefore = labWorld.s.bounces;
         labWorld.Step(p, in, rng, gameTime - (steps - 1 - i) / 120.0);
+        // RocketSim's ball jumping to a huge speed relative to you (not a new ball or a bounce): log it.
+        const float relSpeed = Len(Sub(labWorld.s.ballPos, relBefore)) * 120.f;
+        if (relSpeed > 6000.f && labWorld.s.balls == ballsBefore && labWorld.s.bounces == bouncesBefore)
+        {
+            ++labBallJumps;
+            const RocketSim::CarState cs = labWorld.GetCarState();
+            cvarManager->log("[AirLabs] Boost Lab: RocketSim's ball jumped at " + Fmt("%.0f uu/s", relSpeed) +
+                             Fmt(" (car %.0f", Len(labWorld.s.carVel)) + Fmt(", ball %.0f", Len(labWorld.s.ballVel)) +
+                             Fmt(", spin %.1f", cs.angVel.Length()) + Fmt(", %.0f ticks this call", steps) +
+                             Fmt("). Input: pitch %.2f", in.pitch) + Fmt(" yaw %.2f", in.yaw) + Fmt(" roll %.2f", in.roll) +
+                             Fmt(" throttle %.2f", in.throttle) + (in.jump ? " jump" : "") + (in.boost ? " boost" : "") + (in.handbrake ? " handbrake" : ""));
+        }
         if (labWorld.s.touchedNow) labTouchFlash = gameTime;
         if (labWorld.s.missedNow) labMissFlash = gameTime;
         if (labWorld.resetNow) labResetFlash = gameTime;
@@ -1734,6 +1782,7 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
     RotatorFromBasis(b, rp, ry, rr);
     car.SetRotation(Rotator(rp, ry, rr));
     car.SetAngularVelocity(V(0.f, 0.f, 0.f), false);
+    labSetBasis = BasisFromRotator(rp, ry, rr);
     car.SetLocation(pinLocation);
     car.SetVelocity(V(0.f, 0.f, 0.f));
     lastAim = b.forward;
@@ -1777,6 +1826,8 @@ void AirLabs::LabTick(CarWrapper car, ServerWrapper server, void* params, float 
         ball.SetLocation(Add(pinLocation, rel));
         ball.SetVelocity(V(0.f, 0.f, 0.f));
         ball.SetAngularVelocity(V(0.f, 0.f, 0.f), false);
+        labPlacedBall = ball.GetLocation();
+        labHavePlaced = true;
     }
 }
 
@@ -1950,6 +2001,8 @@ void AirLabs::DrawLab(CanvasWrapper& canvas, const Vector2& screen)
             add(Fmt("Debug: jump presses %.0f", labJumpPresses) + Fmt(", flip resets %.0f", labWorld.flipResets) +
                 (labWorld.carHasFlip ? ", you have a flip" : ", no flip") + std::string(", car: ") + labWorld.carName + Fmt(", wheels on the ball %.0f", labWorld.wheelsOnBall) +
                 Fmt(", car spin %.1f rad/s", labWorld.Ready() ? labWorld.GetCarState().angVel.Length() : 0.f), kColDim, 1.0f);
+            add(Fmt("Debug: the game moved its ball %.0f", labGameMovedBall) + Fmt(" times, turned the car %.0f", labGameTurnedCar) +
+                Fmt(" times; RocketSim ball jumps %.0f", labBallJumps) + Fmt("; physics %.0f ticks/s", measuredRate), kColDim, 1.0f);
         }
         if (p.flips == kLabFlipsInfinite) add("Flips: infinite", kColDim, 1.15f);
         else if (p.flips == kLabFlipsReal)

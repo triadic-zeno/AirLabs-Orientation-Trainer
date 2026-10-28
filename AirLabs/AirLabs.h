@@ -391,6 +391,13 @@ private:
     bool labJumpHeld = false;
     int labJumpPresses = 0;
     double labResetFlash = -10.0;
+    // Watching for the game interfering: where the plugin last put the game's ball and how it last
+    // turned the game car; if they've changed by the next tick, the game moved them.
+    Vector labPlacedBall{ 0.f, 0.f, 0.f };
+    airlabs::Basis labSetBasis{};
+    bool labHavePlaced = false;
+    int labGameMovedBall = 0, labGameTurnedCar = 0, labBallJumps = 0;
+    double labLastDiagLog = -10.0;
     std::shared_ptr<bool> labDebug;   // airlabs_lab_debug: the debug line on the HUD
     void LabDoFlip(CarWrapper car, const airlabs::Basis& b); // the lab's own flip (the game didn't)
     bool labOn = false;               // the lab is running (it has its own tick path)
